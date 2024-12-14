@@ -1,0 +1,10 @@
+[project]
+name = "proto-depth"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=2.1.3",
+    "pillow>=11.0.0",
+]
