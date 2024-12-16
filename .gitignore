@@ -12,4 +12,6 @@ wheels/
 # data
 data/
 
+anim/
+
 .DS_Store

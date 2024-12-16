@@ -140,9 +140,13 @@ def triangle_area_batch(tri):
     return area
 
 
-def point_to_triangle_distance_batch(p, tri):
-    # p: (N,3)
-    # tri: (N,3,3)
+def point_to_triangle_distance_batch(p, tri, beta=100.0):
+    """
+    Compute an approximate minimum distance from each point to the given triangle using a soft-min approach.
+    p: (N,3) Tensor for points
+    tri: (N,3,3) Tensor for triangles
+    beta: float, controls the softness. Larger beta => closer to true min but less smooth.
+    """
     v0 = tri[:, 0, :]
     v1 = tri[:, 1, :]
     v2 = tri[:, 2, :]
@@ -161,17 +165,46 @@ def point_to_triangle_distance_batch(p, tri):
     u = (dot11 * dot02 - dot01 * dot12) * invDenom
     w = (dot00 * dot12 - dot01 * dot02) * invDenom
 
-    # If inside the triangle (u>=0, w>=0, u+w<=1), closest point inside
-    # Otherwise handle edges/vertices similarly (you must implement that logic)
-    # For brevity, assume inside only as before
-    inside_mask = (u >= 0) * (w >= 0) * ((u + w) <= 1)
-    # closest point:
-    closest_pt = v0 + e0 * u.reshape(-1, 1) + e1 * w.reshape(-1, 1)
-    dist = ((p - closest_pt) ** 2).sum(axis=1)
-    # NOTE: This ignores edge/vertex cases. In a real implementation:
-    # handle edges by checking conditions and projecting onto edges,
-    # handle vertices by taking min(distance to each vertex).
-    return dist
+    # Closest point if inside
+    u_exp = u.reshape(-1, 1)
+    w_exp = w.reshape(-1, 1)
+    closest_pt_inside = v0 + e0 * u_exp + e1 * w_exp
+    dist_inside = ((p - closest_pt_inside) ** 2).sum(axis=1)  # (N,)
+
+    # Distances to vertices
+    dist_v0 = ((p - v0) ** 2).sum(axis=1)
+    dist_v1 = ((p - v1) ** 2).sum(axis=1)
+    dist_v2 = ((p - v2) ** 2).sum(axis=1)
+
+    # Edge distance helper
+    def edge_distance(P, A, D):
+        DD = (D * D).sum(axis=1) + 1e-9
+        PA = P - A
+        t = ((PA * D).sum(axis=1) / DD).clip(0.0, 1.0)
+        t_exp = t.reshape(-1, 1)
+        edge_closest = A + D * t_exp
+        return ((P - edge_closest) ** 2).sum(axis=1)
+
+    # Edges
+    dist_e0 = edge_distance(p, v0, e0)  # (v0->v1)
+    dist_e1 = edge_distance(p, v0, e1)  # (v0->v2)
+    e2 = v2 - v1
+    dist_e2 = edge_distance(p, v1, e2)  # (v1->v2)
+
+    # Stack all distances: inside, vertices and edges
+    # shape: (N,7)
+    all_dists = Tensor.stack(
+        dist_inside, dist_v0, dist_v1, dist_v2, dist_e0, dist_e1, dist_e2, dim=1
+    )
+
+    # Soft-min approximation
+    # softmin(x) = - (1/beta)*logsumexp(-beta*x)
+    # ensures differentiability
+    neg_beta_dist = (-beta) * all_dists
+    logsumexp_val = neg_beta_dist.logsumexp(axis=1)  # (N,)
+    softmin_dist = -(1.0 / beta) * logsumexp_val  # (N,)
+
+    return softmin_dist
 
 
 def vector_cross_batch(u, v):
@@ -195,8 +228,6 @@ if __name__ == "__main__":
     # We'll store snapshots in a list of filenames
     snapshot_files = []
 
-    before = mesh_verts.detach().numpy()
-
     for epoch in range(100):
         # Convert to numpy for face assignment
         current_verts = mesh_verts.detach().numpy()
@@ -205,42 +236,67 @@ if __name__ == "__main__":
         )
         closest_points, distances, face_ids = pred_mesh.nearest.on_surface(gt_points)
 
-        # back in Tinygrad
-        gt_points_t = Tensor(np.array(gt_points, np.float32))
+        f_vi = mesh_faces[face_ids]  # f_vi: (N,3) array of vertex indices
+        f_vi_t = Tensor(np.array(f_vi, np.int32))
 
-        f_vi = mesh_faces[face_ids]  # (N,3)
-        f_vi_t = Tensor(f_vi.astype(np.int32))
         tri_for_points = mesh_verts[f_vi_t]  # (N,3,3)
+        # tri_for_points now has the triangle for each point
+        # This indexing is differentiable because f_vi_t is constant and mesh_verts is a parameter.
 
+        gt_points_t = Tensor(np.array(gt_points, np.float32))  # (N,3)
         dist_array = point_to_triangle_distance_batch(
             gt_points_t, tri_for_points
         )  # (N,)
 
-        # aggregate
-        F = mesh_faces.shape[0]
-        dist_np = dist_array.detach().numpy()
-        counts = np.bincount(face_ids, minlength=F)
-        sum_distances = np.bincount(face_ids, weights=dist_np, minlength=F)
-        E_f = sum_distances / np.maximum(counts, 1)
-        E_f_t = Tensor(E_f.astype(np.float32))
+        # mesh_faces_t = Tensor(mesh_faces.astype(np.int32))
+        # tri_all = mesh_verts[mesh_faces_t]  # (F,3,3)
+        # A_f_t = triangle_area_batch(tri_all)
 
-        mesh_faces_t = Tensor(mesh_faces.astype(np.int32))
-        tri_all = mesh_verts[mesh_faces_t]  # (F,3,3)
-        A_f_t = triangle_area_batch(tri_all)
-
-        total_loss = (E_f_t * A_f_t).sum()
+        # total_loss = (E_f_t * A_f_t).sum()
         # total_loss = (E_f_t).sum()
+
+        total_loss = dist_array.mean()  # e.g. average distance
 
         optimizer.zero_grad()
         total_loss.backward()
         optimizer.step()
+
+        # # back in Tinygrad
+        # gt_points_t = Tensor(np.array(gt_points, np.float32))
+
+        # f_vi = mesh_faces[face_ids]  # (N,3)
+        # f_vi_t = Tensor(f_vi.astype(np.int32))
+        # tri_for_points = mesh_verts[f_vi_t]  # (N,3,3)
+
+        # dist_array = point_to_triangle_distance_batch(
+        #     gt_points_t, tri_for_points
+        # )  # (N,)
+
+        # # aggregate
+        # F = mesh_faces.shape[0]
+        # dist_np = dist_array.detach().numpy()
+        # counts = np.bincount(face_ids, minlength=F)
+        # sum_distances = np.bincount(face_ids, weights=dist_np, minlength=F)
+        # E_f = sum_distances / np.maximum(counts, 1)
+        # E_f_t = Tensor(E_f.astype(np.float32))
+
+        # mesh_faces_t = Tensor(mesh_faces.astype(np.int32))
+        # tri_all = mesh_verts[mesh_faces_t]  # (F,3,3)
+        # A_f_t = triangle_area_batch(tri_all)
+
+        # # total_loss = (E_f_t * A_f_t).sum()
+        # total_loss = (E_f_t).sum()
+
+        # optimizer.zero_grad()
+        # total_loss.backward()
+        # optimizer.step()
 
         print(f"Epoch {epoch}: Loss={total_loss.numpy().item()}")
 
         # Every 10 epochs, save a snapshot
         if epoch % 10 == 0:
             # save a plot
-            filename = f"snapshot_{epoch}.png"
+            filename = f"anim/snapshot_{epoch}.png"
             fig = plt.figure(figsize=(12, 6))
 
             # plot gt_points
@@ -279,12 +335,7 @@ if __name__ == "__main__":
             plt.close(fig)
             snapshot_files.append(filename)
 
-    after = mesh_verts.detach().numpy()
-
-    for x1, x2 in zip(before, after):
-        for y1, y2 in zip(x1, x2):
-            if y1 != y2:
-                print(y1, y2)
+    plot(gt_points, mesh_verts, mesh_faces)
 
     # After training, combine snapshots into a GIF
     images = []
