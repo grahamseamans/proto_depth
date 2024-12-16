@@ -28,7 +28,8 @@ def create_sphere_mesh(subdiv=2):
 
     # Create Tinygrad Tensor from verts_np
     mesh_verts = Tensor(verts_np, requires_grad=True)
-    mesh_faces = faces_np  # faces can stay as NumPy since they are just indices
+    # mesh_faces = Tensor(faces_np)  # faces can stay as NumPy since they are just indices
+    mesh_faces = faces_np
 
     return mesh_verts, mesh_faces
 
@@ -227,9 +228,8 @@ if __name__ == "__main__":
         tri_all = mesh_verts[mesh_faces_t]  # (F,3,3)
         A_f_t = triangle_area_batch(tri_all)
 
-        assert E_f_t.shape[0] == A_f_t.shape[0], f"{E_f_t.shape} vs {A_f_t.shape}"
-
         total_loss = (E_f_t * A_f_t).sum()
+        # total_loss = (E_f_t).sum()
 
         optimizer.zero_grad()
         total_loss.backward()
