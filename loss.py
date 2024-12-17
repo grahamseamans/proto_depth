@@ -211,6 +211,10 @@ def vector_cross_batch(u, v):
 
 if __name__ == "__main__":
     obj_path = "data/obj/stanford-bunny.obj"
+    obj_path = "data/obj/xyzrgb_dragon.obj"
+    obj_path = "data/obj/teapot.obj"
+    obj_path = "data/obj/10014_dolphin_v2_max2011_it2.obj"
+
     gt_points = load_ground_truth_pointcloud(obj_path)  # (N,3) np
     mesh_verts, mesh_faces = create_sphere_mesh()  # initial sphere
 
@@ -223,7 +227,7 @@ if __name__ == "__main__":
     # We'll store snapshots in a list of filenames
     snapshot_files = []
 
-    for epoch in range(1000):
+    for epoch in range(400):
         # Convert to numpy for face assignment
         current_verts = mesh_verts.detach().numpy()
         pred_mesh = trimesh.Trimesh(
