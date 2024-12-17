@@ -222,13 +222,16 @@ if __name__ == "__main__":
     gt_points = load_ground_truth_pointcloud(obj_path)  # (N,3) np
     mesh_verts, mesh_faces = create_sphere_mesh()  # initial sphere
 
+    print(f"GT points: {gt_points.shape}")
+    print(f"Initial mesh: {mesh_verts.shape}, {mesh_faces.shape}")
+
     Tensor.training = True
-    optimizer = Adam([mesh_verts], lr=1e-2)
+    optimizer = Adam([mesh_verts], lr=1e-1)
 
     # We'll store snapshots in a list of filenames
     snapshot_files = []
 
-    for epoch in range(100):
+    for epoch in range(500):
         # Convert to numpy for face assignment
         current_verts = mesh_verts.detach().numpy()
         pred_mesh = trimesh.Trimesh(
@@ -248,18 +251,35 @@ if __name__ == "__main__":
             gt_points_t, tri_for_points
         )  # (N,)
 
-        # mesh_faces_t = Tensor(mesh_faces.astype(np.int32))
-        # tri_all = mesh_verts[mesh_faces_t]  # (F,3,3)
-        # A_f_t = triangle_area_batch(tri_all)
+        # After you have face_ids and dist_array:
+        F = mesh_faces.shape[0]
+        face_ids_t = Tensor(face_ids.astype(np.int32))  # Label tensor, no grads needed
 
-        # total_loss = (E_f_t * A_f_t).sum()
-        # total_loss = (E_f_t).sum()
+        # Compute per-face area inside the graph
+        mesh_faces_t = Tensor(mesh_faces.astype(np.int32))
+        tri_all = mesh_verts[mesh_faces_t]  # (F,3,3)
+        A_f_t = triangle_area_batch(tri_all)  # (F,) area of each face
 
-        total_loss = dist_array.mean()  # e.g. average distance
+        # Get area per point by indexing A_f_t with face_ids_t
+        A_pt = A_f_t[
+            face_ids_t
+        ]  # (N,) gives area of the face for each point's assigned face
+
+        # Weight each point's error by the area of the face it belongs to
+        weighted_dist = dist_array * A_pt  # (N,)
+
+        # Final loss:
+        total_loss = weighted_dist.mean()
 
         optimizer.zero_grad()
         total_loss.backward()
         optimizer.step()
+
+        # total_loss = dist_array.mean()  # e.g. average distance
+
+        # optimizer.zero_grad()
+        # total_loss.backward()
+        # optimizer.step()
 
         # # back in Tinygrad
         # gt_points_t = Tensor(np.array(gt_points, np.float32))
@@ -294,7 +314,7 @@ if __name__ == "__main__":
         print(f"Epoch {epoch}: Loss={total_loss.numpy().item()}")
 
         # Every 10 epochs, save a snapshot
-        if epoch % 10 == 0:
+        if epoch % 5 == 0:
             # save a plot
             filename = f"anim/snapshot_{epoch}.png"
             fig = plt.figure(figsize=(12, 6))
