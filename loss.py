@@ -31,43 +31,6 @@ def create_sphere_mesh(subdiv=2):
     return mesh_verts, mesh_faces
 
 
-def point_to_triangle_distance(p, tri):
-    # p: (3,) Tensor
-    # tri: (3,3) Tensor of vertex coords
-    # Compute closest point on triangle to point p
-    # Steps:
-    v0, v1, v2 = tri[0], tri[1], tri[2]
-    # Edges
-    e0 = v1 - v0
-    e1 = v2 - v0
-    v = p - v0
-
-    # Compute dot products
-    dot00 = (e0 * e0).sum()
-    dot01 = (e0 * e1).sum()
-    dot02 = (e0 * v).sum()
-    dot11 = (e1 * e1).sum()
-    dot12 = (e1 * v).sum()
-
-    # Compute barycentric coords
-    invDenom = 1 / (dot00 * dot11 - dot01 * dot01 + 1e-9)
-    u = (dot11 * dot02 - dot01 * dot12) * invDenom
-    v = (dot00 * dot12 - dot01 * dot02) * invDenom
-
-    # Check where closest point lies
-    # If inside the triangle
-    inside_mask = (u >= 0) * (v >= 0) * (u + v <= 1)
-    closest = inside_mask * (v0 + e0 * u + e1 * v) + (1 - inside_mask) * 0.0
-    # If not inside, need to handle edges/vertices
-    # For simplicity: handle inside only. In practice you must handle edges/vertices.
-    # For a full implementation, you'd do separate checks for edges/vertices.
-    # Let's assume small u,v means inside or you handle that logic similarly.
-    # NOTE: This is a simplification for demonstration.
-
-    dist = ((p - closest) ** 2).sum()
-    return dist
-
-
 def vector_cross(u, v):
     # u, v: Tensor of shape (3,)
     ux, uy, uz = u[0], u[1], u[2]
@@ -128,10 +91,9 @@ def plot(gt_points, mesh_verts, mesh_faces):
 
 def point_to_triangle_distance_batch(p, tri):
     """
-    Compute an approximate minimum distance from each point to the given triangle using a soft-min approach.
-    p: (N,3) Tensor for points
-    tri: (N,3,3) Tensor for triangles
-    beta: float, controls the softness. Larger beta => closer to true min but less smooth.
+    Modified version that always tries to project inside the triangle.
+    If the projection (u,w) is outside the valid range, add a penalty that
+    encourages the face to move/orient so that the projection becomes valid.
     """
     v0 = tri[:, 0, :]
     v1 = tri[:, 1, :]
@@ -141,7 +103,7 @@ def point_to_triangle_distance_batch(p, tri):
     e1 = v2 - v0  # (N,3)
     v = p - v0  # (N,3)
 
-    dot00 = (e0 * e0).sum(axis=1)  # (N,)
+    dot00 = (e0 * e0).sum(axis=1)
     dot01 = (e0 * e1).sum(axis=1)
     dot11 = (e1 * e1).sum(axis=1)
     dot02 = (e0 * v).sum(axis=1)
@@ -151,41 +113,99 @@ def point_to_triangle_distance_batch(p, tri):
     u = (dot11 * dot02 - dot01 * dot12) * invDenom
     w = (dot00 * dot12 - dot01 * dot02) * invDenom
 
-    # Closest point if inside
+    # Closest point on the plane defined by the triangle
     u_exp = u.reshape(-1, 1)
     w_exp = w.reshape(-1, 1)
-    closest_pt_inside = v0 + e0 * u_exp + e1 * w_exp
-    dist_inside = ((p - closest_pt_inside) ** 2).sum(axis=1)  # (N,)
+    closest_pt = v0 + e0 * u_exp + e1 * w_exp
 
-    # Distances to vertices
-    dist_v0 = ((p - v0) ** 2).sum(axis=1)
-    dist_v1 = ((p - v1) ** 2).sum(axis=1)
-    dist_v2 = ((p - v2) ** 2).sum(axis=1)
+    # distance to the inside-projected point
+    dist_inside = ((p - closest_pt) ** 2).sum(axis=1)
 
-    # Edge distance helper
-    def edge_distance(P, A, D):
-        DD = (D * D).sum(axis=1) + 1e-9
-        PA = P - A
-        t = ((PA * D).sum(axis=1) / DD).clip(0.0, 1.0)
-        t_exp = t.reshape(-1, 1)
-        edge_closest = A + D * t_exp
-        return ((P - edge_closest) ** 2).sum(axis=1)
+    # Penalty if (u,w) is outside the range [0,1] and u+w <= 1
+    # If u < 0, penalty grows with (u^2) because we want u >= 0
+    # If u > 1, penalty grows with (u-1)^2
+    # Similarly for w.
+    # Also, if u+w > 1, add penalty as well.
 
-    # Edges
-    dist_e0 = edge_distance(p, v0, e0)  # (v0->v1)
-    dist_e1 = edge_distance(p, v0, e1)  # (v0->v2)
-    e2 = v2 - v1
-    dist_e2 = edge_distance(p, v1, e2)  # (v1->v2)
+    penalty_u = (u.clip(None, 0) ** 2) + ((u.clip(1, None) - 1) ** 2)
+    # penalize u out of [0,1]
+    penalty_w = (w.clip(None, 0) ** 2) + ((w.clip(1, None) - 1) ** 2)
+    # penalize w out of [0,1]
 
-    # Stack all distances: inside, vertices and edges
-    # shape: (N,7)
-    all_dists = Tensor.stack(
-        dist_inside, dist_v0, dist_v1, dist_v2, dist_e0, dist_e1, dist_e2, dim=1
-    )
-    min_dist = all_dists.min(axis=1)  # (N,)
+    # Additionally, if u+w > 1, we can add penalty for that as well.
+    # One simple approach is to consider how far (u+w) is from <=1:
+    penalty_sum = ((u + w - 1.0).clip(0, None)) ** 2
 
-    # return softmin_dist
-    return min_dist
+    # Combine the penalties
+    outside_penalty = penalty_u + penalty_w + penalty_sum
+
+    # Final distance is the inside distance plus the penalty
+    dist = dist_inside + outside_penalty
+
+    return dist
+
+
+# def point_to_triangle_distance_batch(p, tri):
+#     """
+#     Compute an approximate minimum distance from each point to the given triangle using a soft-min approach.
+#     p: (N,3) Tensor for points
+#     tri: (N,3,3) Tensor for triangles
+#     beta: float, controls the softness. Larger beta => closer to true min but less smooth.
+#     """
+#     v0 = tri[:, 0, :]
+#     v1 = tri[:, 1, :]
+#     v2 = tri[:, 2, :]
+
+#     e0 = v1 - v0  # (N,3)
+#     e1 = v2 - v0  # (N,3)
+#     v = p - v0  # (N,3)
+
+#     dot00 = (e0 * e0).sum(axis=1)  # (N,)
+#     dot01 = (e0 * e1).sum(axis=1)
+#     dot11 = (e1 * e1).sum(axis=1)
+#     dot02 = (e0 * v).sum(axis=1)
+#     dot12 = (e1 * v).sum(axis=1)
+
+#     invDenom = 1.0 / (dot00 * dot11 - dot01 * dot01 + 1e-9)
+#     u = (dot11 * dot02 - dot01 * dot12) * invDenom
+#     w = (dot00 * dot12 - dot01 * dot02) * invDenom
+
+
+#     # Closest point if inside
+#     u_exp = u.reshape(-1, 1)
+#     w_exp = w.reshape(-1, 1)
+#     closest_pt_inside = v0 + e0 * u_exp + e1 * w_exp
+#     dist_inside = ((p - closest_pt_inside) ** 2).sum(axis=1)  # (N,)
+
+#     # Distances to vertices
+#     dist_v0 = ((p - v0) ** 2).sum(axis=1)
+#     dist_v1 = ((p - v1) ** 2).sum(axis=1)
+#     dist_v2 = ((p - v2) ** 2).sum(axis=1)
+
+#     # Edge distance helper
+#     def edge_distance(P, A, D):
+#         DD = (D * D).sum(axis=1) + 1e-9
+#         PA = P - A
+#         t = ((PA * D).sum(axis=1) / DD).clip(0.0, 1.0)
+#         t_exp = t.reshape(-1, 1)
+#         edge_closest = A + D * t_exp
+#         return ((P - edge_closest) ** 2).sum(axis=1)
+
+#     # Edges
+#     dist_e0 = edge_distance(p, v0, e0)  # (v0->v1)
+#     dist_e1 = edge_distance(p, v0, e1)  # (v0->v2)
+#     e2 = v2 - v1
+#     dist_e2 = edge_distance(p, v1, e2)  # (v1->v2)
+
+#     # Stack all distances: inside, vertices and edges
+#     # shape: (N,7)
+#     all_dists = Tensor.stack(
+#         dist_inside, dist_v0, dist_v1, dist_v2, dist_e0, dist_e1, dist_e2, dim=1
+#     )
+#     min_dist = all_dists.min(axis=1)  # (N,)
+
+#     # return softmin_dist
+#     return min_dist
 
 
 def triangle_area_batch(tri):
@@ -216,7 +236,7 @@ if __name__ == "__main__":
     obj_path = "data/obj/10014_dolphin_v2_max2011_it2.obj"
 
     gt_points = load_ground_truth_pointcloud(obj_path)  # (N,3) np
-    mesh_verts, mesh_faces = create_sphere_mesh()  # initial sphere
+    mesh_verts, mesh_faces = create_sphere_mesh(subdiv=2)  # initial sphere
 
     print(f"GT points: {gt_points.shape}")
     print(f"Initial mesh: {mesh_verts.shape}, {mesh_faces.shape}")
@@ -227,7 +247,7 @@ if __name__ == "__main__":
     # We'll store snapshots in a list of filenames
     snapshot_files = []
 
-    for epoch in range(400):
+    for epoch in range(100):
         # Convert to numpy for face assignment
         current_verts = mesh_verts.detach().numpy()
         pred_mesh = trimesh.Trimesh(
@@ -262,7 +282,8 @@ if __name__ == "__main__":
 
         # Weight each point's error by the area of the face it belongs to
         # weighted_dist = dist_array * (A_pt + 1)  # (N,)
-        weighted_dist = (dist_array + 1) * (A_pt + 1) - 1
+        # weighted_dist = (((dist_array + 1) * (A_pt + 1)) ** 2) - 1
+        weighted_dist = (((dist_array + 1) ** 2) * (A_pt + 1)) - 1
 
         # Final loss:
         total_loss = weighted_dist.mean()
