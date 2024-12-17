@@ -129,18 +129,7 @@ def plot(gt_points, mesh_verts, mesh_faces):
     plt.show()
 
 
-def triangle_area_batch(tri):
-    v0 = tri[:, 0, :]
-    v1 = tri[:, 1, :]
-    v2 = tri[:, 2, :]
-    e0 = v1 - v0
-    e1 = v2 - v0
-    cross = vector_cross_batch(e0, e1)  # implement vector_cross_batch similarly
-    area = 0.5 * (cross * cross).sum(axis=1).sqrt()
-    return area
-
-
-def point_to_triangle_distance_batch(p, tri, beta=100.0):
+def point_to_triangle_distance_batch(p, tri):
     """
     Compute an approximate minimum distance from each point to the given triangle using a soft-min approach.
     p: (N,3) Tensor for points
@@ -196,15 +185,21 @@ def point_to_triangle_distance_batch(p, tri, beta=100.0):
     all_dists = Tensor.stack(
         dist_inside, dist_v0, dist_v1, dist_v2, dist_e0, dist_e1, dist_e2, dim=1
     )
+    min_dist = all_dists.min(axis=1)  # (N,)
 
-    # Soft-min approximation
-    # softmin(x) = - (1/beta)*logsumexp(-beta*x)
-    # ensures differentiability
-    neg_beta_dist = (-beta) * all_dists
-    logsumexp_val = neg_beta_dist.logsumexp(axis=1)  # (N,)
-    softmin_dist = -(1.0 / beta) * logsumexp_val  # (N,)
+    # return softmin_dist
+    return min_dist
 
-    return softmin_dist
+
+def triangle_area_batch(tri):
+    v0 = tri[:, 0, :]
+    v1 = tri[:, 1, :]
+    v2 = tri[:, 2, :]
+    e0 = v1 - v0
+    e1 = v2 - v0
+    cross = vector_cross_batch(e0, e1)  # implement vector_cross_batch similarly
+    area = 0.5 * (cross * cross).sum(axis=1).sqrt()
+    return area
 
 
 def vector_cross_batch(u, v):
@@ -231,7 +226,7 @@ if __name__ == "__main__":
     # We'll store snapshots in a list of filenames
     snapshot_files = []
 
-    for epoch in range(500):
+    for epoch in range(200):
         # Convert to numpy for face assignment
         current_verts = mesh_verts.detach().numpy()
         pred_mesh = trimesh.Trimesh(
@@ -261,12 +256,11 @@ if __name__ == "__main__":
         A_f_t = triangle_area_batch(tri_all)  # (F,) area of each face
 
         # Get area per point by indexing A_f_t with face_ids_t
-        A_pt = A_f_t[
-            face_ids_t
-        ]  # (N,) gives area of the face for each point's assigned face
+        A_pt = A_f_t[face_ids_t]
+        # (N,) gives area of the face for each point's assigned face
 
         # Weight each point's error by the area of the face it belongs to
-        weighted_dist = dist_array * A_pt  # (N,)
+        weighted_dist = dist_array * (A_pt + 1)  # (N,)
 
         # Final loss:
         total_loss = weighted_dist.mean()
