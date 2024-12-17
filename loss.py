@@ -5,15 +5,12 @@ import trimesh
 import matplotlib.pyplot as plt
 import imageio
 
-# ========== Utility functions ==========
-
 
 def load_ground_truth_pointcloud(dolphin_path):
-    # Load a known mesh (dolphin or any shape)
     gt_mesh = trimesh.load(dolphin_path)
-    # Sample points from GT mesh
-    gt_points = gt_mesh.sample(2000)  # e.g. 2000 points
-    return gt_points
+    gt_mesh.vertices -= gt_mesh.vertices.mean(axis=0)
+    gt_mesh.vertices /= np.linalg.norm(gt_mesh.vertices, axis=1).max()
+    return gt_mesh.sample(2000)
 
 
 def create_sphere_mesh(subdiv=2):
@@ -221,7 +218,7 @@ if __name__ == "__main__":
     print(f"Initial mesh: {mesh_verts.shape}, {mesh_faces.shape}")
 
     Tensor.training = True
-    optimizer = Adam([mesh_verts], lr=1e-1)
+    optimizer = Adam([mesh_verts], lr=1e-2)
 
     # We'll store snapshots in a list of filenames
     snapshot_files = []
@@ -260,55 +257,22 @@ if __name__ == "__main__":
         # (N,) gives area of the face for each point's assigned face
 
         # Weight each point's error by the area of the face it belongs to
-        weighted_dist = dist_array * (A_pt + 1)  # (N,)
+        # weighted_dist = dist_array * (A_pt + 1)  # (N,)
+        alpha = 10
+        weighted_dist = dist_array * (A_pt * alpha + 1)
 
         # Final loss:
         total_loss = weighted_dist.mean()
+        # total_loss = (A_f_t).mean()
 
         optimizer.zero_grad()
         total_loss.backward()
         optimizer.step()
 
-        # total_loss = dist_array.mean()  # e.g. average distance
-
-        # optimizer.zero_grad()
-        # total_loss.backward()
-        # optimizer.step()
-
-        # # back in Tinygrad
-        # gt_points_t = Tensor(np.array(gt_points, np.float32))
-
-        # f_vi = mesh_faces[face_ids]  # (N,3)
-        # f_vi_t = Tensor(f_vi.astype(np.int32))
-        # tri_for_points = mesh_verts[f_vi_t]  # (N,3,3)
-
-        # dist_array = point_to_triangle_distance_batch(
-        #     gt_points_t, tri_for_points
-        # )  # (N,)
-
-        # # aggregate
-        # F = mesh_faces.shape[0]
-        # dist_np = dist_array.detach().numpy()
-        # counts = np.bincount(face_ids, minlength=F)
-        # sum_distances = np.bincount(face_ids, weights=dist_np, minlength=F)
-        # E_f = sum_distances / np.maximum(counts, 1)
-        # E_f_t = Tensor(E_f.astype(np.float32))
-
-        # mesh_faces_t = Tensor(mesh_faces.astype(np.int32))
-        # tri_all = mesh_verts[mesh_faces_t]  # (F,3,3)
-        # A_f_t = triangle_area_batch(tri_all)
-
-        # # total_loss = (E_f_t * A_f_t).sum()
-        # total_loss = (E_f_t).sum()
-
-        # optimizer.zero_grad()
-        # total_loss.backward()
-        # optimizer.step()
-
         print(f"Epoch {epoch}: Loss={total_loss.numpy().item()}")
 
         # Every 10 epochs, save a snapshot
-        if epoch % 5 == 0:
+        if epoch % 20 == 0:
             # save a plot
             filename = f"anim/snapshot_{epoch}.png"
             fig = plt.figure(figsize=(12, 6))
