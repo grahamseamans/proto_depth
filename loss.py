@@ -6,8 +6,8 @@ import matplotlib.pyplot as plt
 import imageio
 
 
-def load_ground_truth_pointcloud(dolphin_path):
-    gt_mesh = trimesh.load(dolphin_path)
+def load_ground_truth_pointcloud(obj_path):
+    gt_mesh = trimesh.load(obj_path)
     gt_mesh.vertices -= gt_mesh.vertices.mean(axis=0)
     gt_mesh.vertices /= np.linalg.norm(gt_mesh.vertices, axis=1).max()
     return gt_mesh.sample(2000)
@@ -223,7 +223,7 @@ if __name__ == "__main__":
     # We'll store snapshots in a list of filenames
     snapshot_files = []
 
-    for epoch in range(200):
+    for epoch in range(1000):
         # Convert to numpy for face assignment
         current_verts = mesh_verts.detach().numpy()
         pred_mesh = trimesh.Trimesh(
@@ -258,8 +258,7 @@ if __name__ == "__main__":
 
         # Weight each point's error by the area of the face it belongs to
         # weighted_dist = dist_array * (A_pt + 1)  # (N,)
-        alpha = 10
-        weighted_dist = dist_array * (A_pt * alpha + 1)
+        weighted_dist = (dist_array + 1) * (A_pt + 1) - 1
 
         # Final loss:
         total_loss = weighted_dist.mean()
