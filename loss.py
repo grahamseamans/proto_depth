@@ -6,288 +6,166 @@ import matplotlib.pyplot as plt
 import imageio
 
 
-def load_ground_truth_pointcloud(obj_path):
+def load_ground_truth_pointcloud(obj_path, normalize=False):
     gt_mesh = trimesh.load(obj_path)
-    gt_mesh.vertices -= gt_mesh.vertices.mean(axis=0)
-    gt_mesh.vertices /= np.linalg.norm(gt_mesh.vertices, axis=1).max()
-    return gt_mesh.sample(2000)
+    if normalize:
+        gt_mesh.vertices -= gt_mesh.vertices.mean(axis=0)
+        gt_mesh.vertices /= np.linalg.norm(gt_mesh.vertices, axis=1).max()
+
+    sampled = gt_mesh.sample(2000)
+    return sampled
 
 
 def create_sphere_mesh(subdiv=2):
-    # Create an icosphere with trimesh
     sphere = trimesh.creation.icosphere(subdivisions=subdiv, radius=1.0)
-
-    # sphere.vertices is a TrackedArray, convert to np array first
-    verts_np = np.array(
-        sphere.vertices, dtype=np.float32
-    )  # Now it's a proper NumPy array
+    verts_np = np.array(sphere.vertices, dtype=np.float32)
     faces_np = np.array(sphere.faces, dtype=np.int32)
-
-    # Create Tinygrad Tensor from verts_np
     mesh_verts = Tensor(verts_np, requires_grad=True)
-    # mesh_faces = Tensor(faces_np)  # faces can stay as NumPy since they are just indices
     mesh_faces = faces_np
-
     return mesh_verts, mesh_faces
 
 
-def vector_cross(u, v):
-    # u, v: Tensor of shape (3,)
-    ux, uy, uz = u[0], u[1], u[2]
-    vx, vy, vz = v[0], v[1], v[2]
-    return Tensor.stack(uy * vz - uz * vy, uz * vx - ux * vz, ux * vy - uy * vx)
+def vector_cross_batch(u, v):
+    ux, uy, uz = u[:, :, 0], u[:, :, 1], u[:, :, 2]
+    vx, vy, vz = v[:, :, 0], v[:, :, 1], v[:, :, 2]
+    cx = uy * vz - uz * vy
+    cy = uz * vx - ux * vz
+    cz = ux * vy - uy * vx
+    return Tensor.stack(cx, cy, cz, dim=2)  # (N,F,3)
 
 
-def triangle_area(tri):
-    # tri: (3,3) Tensor for vertices: [v0, v1, v2]
-    v0, v1, v2 = tri[0], tri[1], tri[2]
+def brute_force_point_to_face_distance(points, tri_all):
+    N = points.shape[0]
+    F = tri_all.shape[0]
+
+    p = points.reshape(N, 1, 3).expand(N, F, 3)
+    v0 = tri_all[:, 0, :].reshape(1, F, 3).expand(N, F, 3)
+    v1 = tri_all[:, 1, :].reshape(1, F, 3).expand(N, F, 3)
+    v2 = tri_all[:, 2, :].reshape(1, F, 3).expand(N, F, 3)
+
     e0 = v1 - v0
     e1 = v2 - v0
-    cross = vector_cross(e0, e1)
-    area = 0.5 * (cross * cross).sum().sqrt()
-    return area
+    v = p - v0
 
-
-def plot(gt_points, mesh_verts, mesh_faces):
-
-    # Convert mesh_verts to numpy for plotting
-    sphere_verts_np = mesh_verts.detach().numpy()  # (V,3)
-
-    # Set up matplotlib figure
-    fig = plt.figure(figsize=(12, 6))
-
-    # Left subplot: ground-truth point cloud
-    ax1 = fig.add_subplot(1, 2, 1, projection="3d")
-    ax1.scatter(
-        gt_points[:, 0], gt_points[:, 1], gt_points[:, 2], s=1, c="blue", alpha=0.5
-    )
-    ax1.set_title("Ground-Truth Point Cloud")
-    ax1.set_xlabel("X")
-    ax1.set_ylabel("Y")
-    ax1.set_zlabel("Z")
-    ax1.view_init(elev=20, azim=30)
-
-    # Right subplot: predicted sphere mesh
-    ax2 = fig.add_subplot(1, 2, 2, projection="3d")
-    # plot_trisurf: expects arrays for x, y, z and a 'triangles' parameter
-    ax2.plot_trisurf(
-        sphere_verts_np[:, 0],
-        sphere_verts_np[:, 1],
-        sphere_verts_np[:, 2],
-        triangles=mesh_faces,
-        color="grey",
-        alpha=0.7,
-        edgecolor="none",
-    )
-    ax2.set_title("Initial Predicted Mesh (Sphere)")
-    ax2.set_xlabel("X")
-    ax2.set_ylabel("Y")
-    ax2.set_zlabel("Z")
-    ax2.view_init(elev=20, azim=-60)
-
-    plt.tight_layout()
-    plt.show()
-
-
-def point_to_triangle_distance_batch(p, tri):
-    """
-    Modified version that always tries to project inside the triangle.
-    If the projection (u,w) is outside the valid range, add a penalty that
-    encourages the face to move/orient so that the projection becomes valid.
-    """
-    v0 = tri[:, 0, :]
-    v1 = tri[:, 1, :]
-    v2 = tri[:, 2, :]
-
-    e0 = v1 - v0  # (N,3)
-    e1 = v2 - v0  # (N,3)
-    v = p - v0  # (N,3)
-
-    dot00 = (e0 * e0).sum(axis=1)
-    dot01 = (e0 * e1).sum(axis=1)
-    dot11 = (e1 * e1).sum(axis=1)
-    dot02 = (e0 * v).sum(axis=1)
-    dot12 = (e1 * v).sum(axis=1)
+    dot00 = (e0 * e0).sum(axis=2)
+    dot01 = (e0 * e1).sum(axis=2)
+    dot11 = (e1 * e1).sum(axis=2)
+    dot02 = (e0 * v).sum(axis=2)
+    dot12 = (e1 * v).sum(axis=2)
 
     invDenom = 1.0 / (dot00 * dot11 - dot01 * dot01 + 1e-9)
     u = (dot11 * dot02 - dot01 * dot12) * invDenom
     w = (dot00 * dot12 - dot01 * dot02) * invDenom
 
-    # Closest point on the plane defined by the triangle
-    u_exp = u.reshape(-1, 1)
-    w_exp = w.reshape(-1, 1)
-    closest_pt = v0 + e0 * u_exp + e1 * w_exp
+    u_exp = u.reshape(N, F, 1)
+    w_exp = w.reshape(N, F, 1)
+    closest_pt_inside = v0 + e0 * u_exp + e1 * w_exp
+    dist_inside = ((p - closest_pt_inside) ** 2).sum(axis=2)
 
-    # distance to the inside-projected point
-    dist_inside = ((p - closest_pt) ** 2).sum(axis=1)
+    dist_v0 = ((p - v0) ** 2).sum(axis=2)
+    dist_v1 = ((p - v1) ** 2).sum(axis=2)
+    dist_v2 = ((p - v2) ** 2).sum(axis=2)
 
-    # Penalty if (u,w) is outside the range [0,1] and u+w <= 1
-    # If u < 0, penalty grows with (u^2) because we want u >= 0
-    # If u > 1, penalty grows with (u-1)^2
-    # Similarly for w.
-    # Also, if u+w > 1, add penalty as well.
+    def edge_distance(P, A, D):
+        DD = (D * D).sum(axis=2) + 1e-9
+        PA = P - A
+        t = ((PA * D).sum(axis=2) / DD).clip(0, 1)
+        t_exp = t.reshape(N, F, 1)
+        edge_closest = A + D * t_exp
+        return ((P - edge_closest) ** 2).sum(axis=2)
 
-    penalty_u = (u.clip(None, 0) ** 2) + ((u.clip(1, None) - 1) ** 2)
-    # penalize u out of [0,1]
-    penalty_w = (w.clip(None, 0) ** 2) + ((w.clip(1, None) - 1) ** 2)
-    # penalize w out of [0,1]
+    dist_e0 = edge_distance(p, v0, e0)
+    dist_e1 = edge_distance(p, v0, e1)
+    e2 = v2 - v1
+    dist_e2 = edge_distance(p, v1, e2)
 
-    # Additionally, if u+w > 1, we can add penalty for that as well.
-    # One simple approach is to consider how far (u+w) is from <=1:
-    penalty_sum = ((u + w - 1.0).clip(0, None)) ** 2
+    all_dists = Tensor.stack(
+        dist_inside, dist_v0, dist_v1, dist_v2, dist_e0, dist_e1, dist_e2, dim=2
+    )
+    face_min_dist = all_dists.min(axis=2)
 
-    # Combine the penalties
-    outside_penalty = penalty_u + penalty_w + penalty_sum
+    min_dist = face_min_dist.min(axis=1)
+    chosen_face = face_min_dist.argmin(axis=1)
 
-    # Final distance is the inside distance plus the penalty
-    dist = dist_inside + outside_penalty
-
-    return dist
-
-
-# def point_to_triangle_distance_batch(p, tri):
-#     """
-#     Compute an approximate minimum distance from each point to the given triangle using a soft-min approach.
-#     p: (N,3) Tensor for points
-#     tri: (N,3,3) Tensor for triangles
-#     beta: float, controls the softness. Larger beta => closer to true min but less smooth.
-#     """
-#     v0 = tri[:, 0, :]
-#     v1 = tri[:, 1, :]
-#     v2 = tri[:, 2, :]
-
-#     e0 = v1 - v0  # (N,3)
-#     e1 = v2 - v0  # (N,3)
-#     v = p - v0  # (N,3)
-
-#     dot00 = (e0 * e0).sum(axis=1)  # (N,)
-#     dot01 = (e0 * e1).sum(axis=1)
-#     dot11 = (e1 * e1).sum(axis=1)
-#     dot02 = (e0 * v).sum(axis=1)
-#     dot12 = (e1 * v).sum(axis=1)
-
-#     invDenom = 1.0 / (dot00 * dot11 - dot01 * dot01 + 1e-9)
-#     u = (dot11 * dot02 - dot01 * dot12) * invDenom
-#     w = (dot00 * dot12 - dot01 * dot02) * invDenom
+    return min_dist, chosen_face, face_min_dist
 
 
-#     # Closest point if inside
-#     u_exp = u.reshape(-1, 1)
-#     w_exp = w.reshape(-1, 1)
-#     closest_pt_inside = v0 + e0 * u_exp + e1 * w_exp
-#     dist_inside = ((p - closest_pt_inside) ** 2).sum(axis=1)  # (N,)
-
-#     # Distances to vertices
-#     dist_v0 = ((p - v0) ** 2).sum(axis=1)
-#     dist_v1 = ((p - v1) ** 2).sum(axis=1)
-#     dist_v2 = ((p - v2) ** 2).sum(axis=1)
-
-#     # Edge distance helper
-#     def edge_distance(P, A, D):
-#         DD = (D * D).sum(axis=1) + 1e-9
-#         PA = P - A
-#         t = ((PA * D).sum(axis=1) / DD).clip(0.0, 1.0)
-#         t_exp = t.reshape(-1, 1)
-#         edge_closest = A + D * t_exp
-#         return ((P - edge_closest) ** 2).sum(axis=1)
-
-#     # Edges
-#     dist_e0 = edge_distance(p, v0, e0)  # (v0->v1)
-#     dist_e1 = edge_distance(p, v0, e1)  # (v0->v2)
-#     e2 = v2 - v1
-#     dist_e2 = edge_distance(p, v1, e2)  # (v1->v2)
-
-#     # Stack all distances: inside, vertices and edges
-#     # shape: (N,7)
-#     all_dists = Tensor.stack(
-#         dist_inside, dist_v0, dist_v1, dist_v2, dist_e0, dist_e1, dist_e2, dim=1
-#     )
-#     min_dist = all_dists.min(axis=1)  # (N,)
-
-#     # return softmin_dist
-#     return min_dist
-
-
-def triangle_area_batch(tri):
-    v0 = tri[:, 0, :]
-    v1 = tri[:, 1, :]
-    v2 = tri[:, 2, :]
+def triangle_area_batch(tri_all):
+    # tri_all: (F,3,3)
+    v0 = tri_all[:, 0, :]
+    v1 = tri_all[:, 1, :]
+    v2 = tri_all[:, 2, :]
+    # Expand dims to handle vector ops easily
+    # For a single operation, just do the cross product:
     e0 = v1 - v0
     e1 = v2 - v0
-    cross = vector_cross_batch(e0, e1)  # implement vector_cross_batch similarly
-    area = 0.5 * (cross * cross).sum(axis=1).sqrt()
-    return area
-
-
-def vector_cross_batch(u, v):
-    # u, v: (N,3)
-    ux, uy, uz = u[:, 0], u[:, 1], u[:, 2]
-    vx, vy, vz = v[:, 0], v[:, 1], v[:, 2]
+    # We'll assume a small batch dimension since we can vectorize easily
+    ux, uy, uz = e0[:, 0], e0[:, 1], e0[:, 2]
+    vx, vy, vz = e1[:, 0], e1[:, 1], e1[:, 2]
     cx = uy * vz - uz * vy
     cy = uz * vx - ux * vz
     cz = ux * vy - uy * vx
-    return Tensor.stack(cx, cy, cz, dim=1)  # (N,3)
+    cross_norm = (cx * cx + cy * cy + cz * cz) ** 0.5
+    area = 0.5 * cross_norm
+    return area
 
 
 if __name__ == "__main__":
-    obj_path = "data/obj/stanford-bunny.obj"
     obj_path = "data/obj/xyzrgb_dragon.obj"
-    obj_path = "data/obj/teapot.obj"
-    obj_path = "data/obj/10014_dolphin_v2_max2011_it2.obj"
+    obj_path = "data/obj/stanford-bunny.obj"
+    gt_points = load_ground_truth_pointcloud(obj_path, normalize=True)
 
-    gt_points = load_ground_truth_pointcloud(obj_path)  # (N,3) np
     mesh_verts, mesh_faces = create_sphere_mesh(subdiv=2)  # initial sphere
-
     print(f"GT points: {gt_points.shape}")
     print(f"Initial mesh: {mesh_verts.shape}, {mesh_faces.shape}")
 
     Tensor.training = True
     optimizer = Adam([mesh_verts], lr=1e-2)
-
-    # We'll store snapshots in a list of filenames
     snapshot_files = []
 
+    gt_points_t = Tensor(np.array(gt_points, np.float32))
+
+    # Convert faces to Tensor once
+    mesh_faces_t = Tensor(np.array(mesh_faces, np.int32))
+    tri_all = mesh_verts[mesh_faces_t]  # (F,3,3)
+
     for epoch in range(100):
-        # Convert to numpy for face assignment
-        current_verts = mesh_verts.detach().numpy()
-        pred_mesh = trimesh.Trimesh(
-            vertices=current_verts, faces=mesh_faces, process=False
+        # We must re-fetch tri_all each time after mesh_verts changes:
+        tri_all = mesh_verts[mesh_faces_t]
+
+        # In main training loop:
+        # ...
+        min_dist, chosen_face, face_min_dist = brute_force_point_to_face_distance(
+            gt_points_t, tri_all
         )
-        closest_points, distances, face_ids = pred_mesh.nearest.on_surface(gt_points)
+        A_f_t = triangle_area_batch(tri_all)
 
-        f_vi = mesh_faces[face_ids]  # f_vi: (N,3) array of vertex indices
-        f_vi_t = Tensor(np.array(f_vi, np.int32))
+        # Suppose chosen_face is (N,) with the index of chosen face per point
+        chosen_face_np = chosen_face.numpy()  # convert to numpy
+        N = chosen_face_np.shape[0]
+        F = A_f_t.shape[0]
 
-        tri_for_points = mesh_verts[f_vi_t]  # (N,3,3)
-        # tri_for_points now has the triangle for each point
-        # This indexing is differentiable because f_vi_t is constant and mesh_verts is a parameter.
+        # Create a one-hot mask for the chosen faces
+        chosen_face_oh = np.zeros((N, F), dtype=np.float32)
+        chosen_face_oh[np.arange(N), chosen_face_np] = 1.0
+        chosen_face_oh = Tensor(chosen_face_oh)  # a constant tensor (no grad needed)
 
-        gt_points_t = Tensor(np.array(gt_points, np.float32))  # (N,3)
-        dist_array = point_to_triangle_distance_batch(
-            gt_points_t, tri_for_points
-        )  # (N,)
+        # Now compute A_chosen as a weighted sum:
+        # A_f_t: (F,)
+        # chosen_face_oh: (N,F)
+        # Multiply and sum over faces to select the chosen face's area
+        A_chosen = (chosen_face_oh * A_f_t.reshape(1, F)).sum(axis=1)  # (N,)
 
-        # After you have face_ids and dist_array:
-        F = mesh_faces.shape[0]
-        face_ids_t = Tensor(face_ids.astype(np.int32))  # Label tensor, no grads needed
+        # Now A_chosen is differentiable w.r.t. A_f_t and thus w.r.t mesh_verts
+        # weighted_dist = ((min_dist + 1) * (A_chosen + 1)) - 1
+        # total_loss = weighted_dist.mean()
+        # A_chosen = A_f_t[chosen_face]
 
-        # Compute per-face area inside the graph
-        mesh_faces_t = Tensor(mesh_faces.astype(np.int32))
-        tri_all = mesh_verts[mesh_faces_t]  # (F,3,3)
-        A_f_t = triangle_area_batch(tri_all)  # (F,) area of each face
-
-        # Get area per point by indexing A_f_t with face_ids_t
-        A_pt = A_f_t[face_ids_t]
-        # (N,) gives area of the face for each point's assigned face
-
-        # Weight each point's error by the area of the face it belongs to
-        # weighted_dist = dist_array * (A_pt + 1)  # (N,)
-        # weighted_dist = (((dist_array + 1) * (A_pt + 1)) ** 2) - 1
-        weighted_dist = (((dist_array + 1) ** 2) * (A_pt + 1)) - 1
-
-        # Final loss:
-        total_loss = weighted_dist.mean()
-        # total_loss = (A_f_t).mean()
+        weighted_dist = ((min_dist + 1) * (A_chosen + 1)) - 1
+        # total_loss = weighted_dist.mean()
+        total_loss = face_min_dist.mean()
+        total_loss = min_dist.mean()
+        # total_loss = A_chosen.mean()
 
         optimizer.zero_grad()
         total_loss.backward()
@@ -295,13 +173,14 @@ if __name__ == "__main__":
 
         print(f"Epoch {epoch}: Loss={total_loss.numpy().item()}")
 
-        # Every 10 epochs, save a snapshot
+        # Save snapshot every 20 epochs
         if epoch % 20 == 0:
-            # save a plot
+
+            elev, azim = 90, 270
+
             filename = f"anim/snapshot_{epoch}.png"
             fig = plt.figure(figsize=(12, 6))
 
-            # plot gt_points
             ax1 = fig.add_subplot(1, 2, 1, projection="3d")
             ax1.scatter(
                 gt_points[:, 0],
@@ -315,9 +194,10 @@ if __name__ == "__main__":
             ax1.set_xlabel("X")
             ax1.set_ylabel("Y")
             ax1.set_zlabel("Z")
+            ax1.view_init(elev=elev, azim=azim)  # Set the viewing angle
 
-            ax2 = fig.add_subplot(1, 2, 2, projection="3d")
             sphere_verts_np = mesh_verts.realize().detach().numpy()
+            ax2 = fig.add_subplot(1, 2, 2, projection="3d")
             ax2.plot_trisurf(
                 sphere_verts_np[:, 0],
                 sphere_verts_np[:, 1],
@@ -331,13 +211,12 @@ if __name__ == "__main__":
             ax2.set_xlabel("X")
             ax2.set_ylabel("Y")
             ax2.set_zlabel("Z")
+            ax2.view_init(elev=elev, azim=azim)  # Set the viewing angle
 
             plt.tight_layout()
             plt.savefig(filename)
             plt.close(fig)
             snapshot_files.append(filename)
-
-    plot(gt_points, mesh_verts, mesh_faces)
 
     # After training, combine snapshots into a GIF
     images = []
