@@ -308,6 +308,13 @@ if __name__ == "__main__":
         alpha = 5.0  # bigger -> sharper cutoff
         # penalty_grow = (A_pt + 1.0) * Tensor.exp(-alpha * dist_array)
 
+        #######################################################################
+
+        # can I just make it so that when it wants to get smaller, it also wants to get more equilateral?
+        # this would lead to a similar oucome as the even mesh normlaizer in areas with high loss
+
+        #######################################################################
+
         loss = penalty_shrink  # + penalty_grow
 
         # Final loss:
