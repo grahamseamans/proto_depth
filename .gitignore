@@ -8,12 +8,37 @@ wheels/
 
 # Virtual environments
 .venv
+.env
+venv/
+env/
 
-# data
+# Data and large files
 data/
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.zip
+*.tar
+*.gz
+*.mp4
+*.avi
+*.mov
+Miniconda3-*.sh
+training_progress/
+training_animation.*
+debug_figure*.*
+
+# Development
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Environment
+.conda/
+.python-version
+uv.lock
 
 anim/
-
-.DS_Store
-
-.conda
