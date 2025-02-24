@@ -31,6 +31,9 @@
      - Select and blend prototypes using the softmax-weighted combination of `logits`.
      - Transform prototypes using `scale` and `transform`.
    - Render for fun.
+   - Really each object is a mesh transform - we actually just have one true object (the sphere) which doesn't get backpropped, but we have all of these mesh transforms.
+
+   when we make linear combo we softmax the logits, then use that to scale how much of each transform is used on the sphere
 
 4. **Loss Function**
    - Use one directional point cloud loss (e.g., Chamfer Distance):
