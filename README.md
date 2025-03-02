@@ -99,3 +99,21 @@
 ### 4. Hierarcical protoypes
 - Something more like this: (https://arxiv.org/pdf/1905.05622)
 - Wheels are on bikes, cars... find a way to have these objects share prototypes.
+
+if the autoregressive thing works, i can copy deepseek grpo, make time seperate from steps, and then have it rl try to get to later frames.
+
+so like give it 10 frames, then ask it what it thinks is going to happen at t + 10, maybe with a few guesses and then reward it if any of them are right
+
+it can take as many steps as it wants, so it would need to like, train in a weird way where it wasn't time locked.
+
+(to clarify here, the idea is that with a sequence of x inputs, they're not linearly spaced over time with 1/x being the time difference between steps)
+
+but if it can learn that each of it's inputs aren't time locked, and that time itself is some, like, seperate quality, that can move forwards and backwards, 
+
+then we're doing great
+
+we could train it will all sort of sequences, with increasing and decreasing rate of time
+
+fast rate of time, slow rate of time.
+
+time would need to be an input, like the depth map, idk what time would be, a string? utc? relative (sine waves again?) idk, it's different from positional embedding though.
