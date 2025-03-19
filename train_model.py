@@ -7,7 +7,7 @@ from src.train import train
 if __name__ == "__main__":
     # Training configuration
     config = {
-        "data_path": "data/SYNTHIA-SF/SEQ1/DepthDebugLeft",
+        "data_path": "data/SYNTHIA-SF/SEQ1/DepthLeft",
         "batch_size": 4,  # Smaller batch size for testing
         "num_epochs": 2,  # Just 2 epochs for testing
         "lr": 1e-4,

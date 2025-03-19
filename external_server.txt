@@ -1,1 +1,0 @@
-ssh -o StrictHostKeyChecking=no -p 11414 root@ssha.jarvislabs.ai

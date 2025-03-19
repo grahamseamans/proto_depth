@@ -62,6 +62,8 @@ def transform_fn(data_item):
     depth_img_3ch = depth_img.expand(3, -1, -1)  # (3,H,W)
 
     points = depth_to_pointcloud(depth)
+    # Subsample points to a fixed size to ensure consistent tensor dimensions
+    points = stratified_depth_sampling(points, bins=5, samples_per_bin=2000)
     points_t = torch.from_numpy(points.astype(np.float32))  # (N,3)
 
     # return (input, target) format
@@ -149,13 +151,13 @@ class DataHandler:
         transposed = list(zip(*processed))
 
         out = []
-        for elements in transposed:
+        for i, elements in enumerate(transposed):
             # elements is a tuple of length batch_size
-            # if elements are all Tensor, stack them
-            if isinstance(elements[0], torch.Tensor):
+            # if elements are all Tensor and it's not the point cloud (index 1)
+            if isinstance(elements[0], torch.Tensor) and i != 1:
                 out.append(torch.stack(elements))
             else:
-                # just return as a list (e.g. ann indexes)
+                # just return as a list (e.g. ann indexes or point clouds)
                 out.append(elements)
 
         return tuple(out)

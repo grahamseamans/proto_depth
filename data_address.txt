@@ -1,3 +1,5 @@
+they're downloaded to ~ on the local machine
+
 SYNTHIA-RAND (CVPR16)
 http://synthia-dataset.net/download/810/
 

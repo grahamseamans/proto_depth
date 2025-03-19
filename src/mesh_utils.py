@@ -94,7 +94,7 @@ class MeshTransformer(nn.Module):
         """
         Args:
             meshes: List of B Meshes objects, each containing num_slots meshes
-            target_pcls: Tensor of shape [B, N, 3] - target point clouds
+            target_pcls: List of B Tensor objects, each of shape [N_i, 3] - target point clouds
         Returns:
             loss: Scalar tensor
         """

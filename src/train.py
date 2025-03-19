@@ -55,14 +55,14 @@ def train(
             try:
                 # Get batch
                 print("Getting batch...", end="\r")
-                depth_img_3ch, points_t, _ = data_handler.get_train_batch(batch_size)
+                depth_img_3ch, points_list, _ = data_handler.get_train_batch(batch_size)
                 print(
-                    f"Got batch: depth_img shape={depth_img_3ch.shape}, points shape={points_t.shape}"
+                    f"Got batch: depth_img shape={depth_img_3ch.shape}, points list length={len(points_list)}"
                 )
 
                 # Move to device
                 depth_img_3ch = depth_img_3ch.to(device)
-                points_t = points_t.to(device)
+                points_list = [p.to(device) for p in points_list]
 
                 # Forward pass through encoder
                 print("Running encoder...", end="\r")
@@ -81,7 +81,7 @@ def train(
                 # Compute chamfer loss
                 print("Computing loss...", end="\r")
                 loss = mesh_transformer.compute_chamfer_loss(
-                    transformed_meshes, points_t
+                    transformed_meshes, points_list
                 )
                 print(f"Loss computed: {loss.item():.4f}")
 
