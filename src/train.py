@@ -102,9 +102,11 @@ def train(
                 scales, transforms, prototype_weights, prototype_offsets
             )
 
-            # Compute chamfer loss
-            chamfer_loss = mesh_transformer.compute_chamfer_loss(
-                transformed_meshes, points_list
+            # Compute chamfer loss with hybrid approach
+            chamfer_loss, global_chamfer_loss, per_slot_chamfer_loss = (
+                mesh_transformer.compute_hybrid_chamfer_loss(
+                    transformed_meshes, points_list
+                )
             )
 
             # Compute prototype regularization losses
@@ -140,15 +142,20 @@ def train(
             batch_pbar.set_postfix(
                 {
                     "loss": f"{loss.item():.4f}",
-                    "chamfer": f"{chamfer_loss.item():.4f}",
-                    "edge": f"{proto_edge_loss.item():.4f}",  # Show prototype edge loss
+                    "global": f"{global_chamfer_loss.item():.4f}",
+                    "per-slot": f"{per_slot_chamfer_loss.item():.4f}",
+                    "edge": f"{proto_edge_loss.item():.4f}",
                 }
             )
             batch_pbar.update(1)
 
             # Visualize progress
             if global_batch % viz_interval == 0:
-                tqdm.write(f"\nBatch {num_batches}: Loss = {loss.item():.4f}")
+                tqdm.write(
+                    f"\nBatch {num_batches}: Loss = {loss.item():.4f}, "
+                    f"Global Chamfer = {global_chamfer_loss.item():.4f}, "
+                    f"Per-slot Chamfer = {per_slot_chamfer_loss.item():.4f}"
+                )
                 update_progress(
                     epoch + 1,
                     global_batch,
@@ -157,6 +164,8 @@ def train(
                     transformed_meshes,
                     visualizer,
                     original_depth=original_depth,
+                    global_chamfer=global_chamfer_loss.item(),
+                    per_slot_chamfer=per_slot_chamfer_loss.item(),
                 )
 
         # Close the batch progress bar

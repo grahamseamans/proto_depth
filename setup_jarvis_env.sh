@@ -12,8 +12,18 @@ REMOTE_DIR="/root/proto_depth"
 
 echo "Setting up environment on $REMOTE_HOST (port $REMOTE_PORT)"
 
-# Create remote directory structure
-ssh -p $REMOTE_PORT -o StrictHostKeyChecking=accept-new $REMOTE_HOST "mkdir -p $REMOTE_DIR/data"
+# Create remote directory structure and ensure rsync is installed
+ssh -p $REMOTE_PORT -o StrictHostKeyChecking=accept-new $REMOTE_HOST << EOF
+  mkdir -p $REMOTE_DIR/data
+  
+  # Install rsync if not already installed
+  if ! command -v rsync &> /dev/null; then
+    echo "Installing rsync..."
+    apt-get update && apt-get install -y rsync
+  else
+    echo "rsync is already installed."
+  fi
+EOF
 
 # Copy the setup files to the remote machine
 rsync -avz -e "ssh -p $REMOTE_PORT -o StrictHostKeyChecking=accept-new" \

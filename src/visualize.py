@@ -92,7 +92,15 @@ class DepthVisualizer:
 
 
 def update_progress(
-    epoch, batch, loss, input_depth, predicted_meshes, visualizer, original_depth=None
+    epoch,
+    batch,
+    loss,
+    input_depth,
+    predicted_meshes,
+    visualizer,
+    original_depth=None,
+    global_chamfer=None,
+    per_slot_chamfer=None,
 ):
     """
     Update training progress with visualization
@@ -105,12 +113,19 @@ def update_progress(
         predicted_meshes: List of predicted meshes
         visualizer: DepthVisualizer instance
         original_depth: [B, 1, H, W] original depth tensor in meters (optional)
+        global_chamfer: Global chamfer loss value (optional)
+        per_slot_chamfer: Per-slot chamfer loss value (optional)
     """
+    # Create title with loss information
+    title = f"Epoch {epoch}, Batch {batch}, Loss: {loss:.4f}"
+    if global_chamfer is not None and per_slot_chamfer is not None:
+        title += f"\nGlobal Chamfer: {global_chamfer:.4f}, Per-slot Chamfer: {per_slot_chamfer:.4f}"
+
     # Create visualization
     fig = visualizer.visualize_comparison(
         input_depth,
         predicted_meshes,
-        title=f"Epoch {epoch}, Batch {batch}, Loss: {loss:.4f}",
+        title=title,
         original_depth=original_depth,
     )
 
