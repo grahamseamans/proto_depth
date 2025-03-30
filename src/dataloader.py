@@ -71,12 +71,107 @@ def transform_fn(data_item):
 
 
 ###################################
-# Integration with DataHandler
+# PyTorch Dataset Integration
 ###################################
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
+class DepthDataset(torch.utils.data.Dataset):
+    def __init__(self, data_paths, transform_fn):
+        """
+        PyTorch Dataset for depth data.
+
+        Args:
+            data_paths: List of tuples, each containing a path to a depth image
+            transform_fn: Function to process each data item
+        """
+        self.data_paths = data_paths
+        self.transform_fn = transform_fn
+
+    def __len__(self):
+        return len(self.data_paths)
+
+    def __getitem__(self, idx):
+        return self.transform_fn(self.data_paths[idx])
 
 
+def create_data_loaders(
+    data, transform_fn, batch_size=32, test_ratio=0.2, seed=42, num_workers=4
+):
+    """
+    Creates train and test data loaders from the provided data.
+
+    Args:
+        data: List of data items (tuples with file paths)
+        transform_fn: Function to process each data item
+        batch_size: Batch size for the data loaders
+        test_ratio: Ratio of data to use for testing
+        seed: Random seed for reproducibility
+        num_workers: Number of worker processes for data loading
+
+    Returns:
+        train_loader, test_loader: PyTorch DataLoader objects
+    """
+    # Split data into train and test sets
+    random.seed(seed)
+    data_shuffled = data[:]
+    random.shuffle(data_shuffled)
+    test_size = int(len(data_shuffled) * test_ratio)
+    test_data = data_shuffled[:test_size]
+    train_data = data_shuffled[test_size:]
+
+    # Create datasets
+    train_dataset = DepthDataset(train_data, transform_fn)
+    test_dataset = DepthDataset(test_data, transform_fn)
+
+    # Create data loaders
+    train_loader = torch.utils.data.DataLoader(
+        train_dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=num_workers,
+        collate_fn=depth_collate_fn,
+    )
+
+    test_loader = torch.utils.data.DataLoader(
+        test_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        collate_fn=depth_collate_fn,
+    )
+
+    return train_loader, test_loader
+
+
+def depth_collate_fn(batch):
+    """
+    Custom collate function for the depth data loader.
+    Handles variable-sized point clouds and other batch items.
+
+    Args:
+        batch: List of tuples (depth_img_3ch, points_t, ann_index)
+
+    Returns:
+        Batched tensors and lists
+    """
+    # Transpose the batch
+    transposed = list(zip(*batch))
+
+    out = []
+    for i, elements in enumerate(transposed):
+        # elements is a tuple of length batch_size
+        # If elements are all Tensor and it's not the point cloud (index 1)
+        if isinstance(elements[0], torch.Tensor) and i != 1:
+            out.append(torch.stack(elements))
+        else:
+            # Just return as a list (e.g. for point clouds or ann indexes)
+            out.append(elements)
+
+    return tuple(out)
+
+
+# Legacy DataHandler class for backward compatibility
 class DataHandler:
+    """Legacy DataHandler class for backward compatibility"""
+
     def __init__(
         self,
         data,
@@ -87,23 +182,22 @@ class DataHandler:
         num_workers=None,
         pool_type="thread",
     ):
+        print("WARNING: DataHandler is deprecated. Using PyTorch DataLoader instead.")
         if transform_fn is None:
             raise ValueError("You must provide a transform_fn.")
 
         self.transform_fn = transform_fn
-        self.shuffle = shuffle
-
-        self.executor = None
-        if num_workers is not None and num_workers > 0:
-            if pool_type == "thread":
-                self.executor = ThreadPoolExecutor(max_workers=num_workers)
-            else:
-                self.executor = ProcessPoolExecutor(max_workers=num_workers)
-
         self.train_data, self.test_data = self.train_test_split(data, test_ratio, seed)
-
-        self.train_samples = self.Samples(len(self.train_data), shuffle=shuffle)
-        self.test_samples = self.Samples(len(self.test_data), shuffle=False)
+        self.train_loader, self.test_loader = create_data_loaders(
+            data,
+            transform_fn,
+            batch_size=32,
+            test_ratio=test_ratio,
+            seed=seed,
+            num_workers=num_workers or 4,
+        )
+        self.train_iter = iter(self.train_loader)
+        self.test_iter = iter(self.test_loader)
 
     @staticmethod
     def train_test_split(data, test_ratio=0.2, seed=42):
@@ -115,71 +209,28 @@ class DataHandler:
         train_data = data_shuffled[test_size:]
         return train_data, test_data
 
-    class Samples:
-        def __init__(self, length, shuffle=True):
-            self.length = length
-            self.shuffle = shuffle
-            self.sample_idxs = list(range(length))
-            if self.shuffle:
-                random.shuffle(self.sample_idxs)
-
-        def idxs(self, batch_size):
-            assert batch_size <= self.length
-            if len(self.sample_idxs) < batch_size:
-                self.sample_idxs = list(range(self.length))
-                if self.shuffle:
-                    random.shuffle(self.sample_idxs)
-            ret = self.sample_idxs[:batch_size]
-            self.sample_idxs = self.sample_idxs[batch_size:]
-            return ret
-
-        def reset(self):
-            self.sample_idxs = list(range(self.length))
-            if self.shuffle:
-                random.shuffle(self.sample_idxs)
-
-    def make_batch(self, data, idxs):
-        if self.executor:
-            processed = list(
-                self.executor.map(self.transform_fn, [data[i] for i in idxs])
-            )
-        else:
-            processed = [self.transform_fn(data[i]) for i in idxs]
-
-        # processed is a list of tuples like (depth_img_3ch, points_t, ann_index)
-        # transpose them
-        transposed = list(zip(*processed))
-
-        out = []
-        for i, elements in enumerate(transposed):
-            # elements is a tuple of length batch_size
-            # if elements are all Tensor and it's not the point cloud (index 1)
-            if isinstance(elements[0], torch.Tensor) and i != 1:
-                out.append(torch.stack(elements))
-            else:
-                # just return as a list (e.g. ann indexes or point clouds)
-                out.append(elements)
-
-        return tuple(out)
-
     def get_train_batch(self, batch_size):
-        idxs = self.train_samples.idxs(batch_size)
-        return self.make_batch(self.train_data, idxs)
+        try:
+            return next(self.train_iter)
+        except StopIteration:
+            self.reset_train()
+            return next(self.train_iter)
 
     def get_test_batch(self, batch_size):
-        idxs = self.test_samples.idxs(batch_size)
-        return self.make_batch(self.test_data, idxs)
+        try:
+            return next(self.test_iter)
+        except StopIteration:
+            self.reset_test()
+            return next(self.test_iter)
 
     def reset_train(self):
-        self.train_samples.reset()
+        self.train_iter = iter(self.train_loader)
 
     def reset_test(self):
-        self.test_samples.reset()
+        self.test_iter = iter(self.test_loader)
 
     def close(self):
-        if self.executor is not None:
-            self.executor.shutdown()
-            self.executor = None
+        pass
 
     def __del__(self):
         self.close()

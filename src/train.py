@@ -1,3 +1,8 @@
+import os
+
+# os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+
+
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -7,11 +12,12 @@ from pytorch3d.structures import Pointclouds
 import os
 from pathlib import Path
 from glob import glob
+from tqdm import tqdm
 
 from .model import DepthEncoder
 from .mesh_utils import MeshTransformer
-from .dataloader import DataHandler, transform_fn
-from .visualize import DepthVisualizer, update_progress
+from .dataloader import DataHandler, transform_fn, create_data_loaders
+from .visualize import DepthVisualizer, update_progress, save_final_visualizations
 
 
 def train(
@@ -22,6 +28,12 @@ def train(
     num_prototypes=10,
     num_slots=5,
     viz_interval=50,  # Visualize every 50 batches
+    num_final_samples=10,  # Number of samples to visualize at the end
+    # Regularization weights
+    w_chamfer=1.0,
+    w_edge=0.1,  # Reduced to allow more aggressive movement
+    w_normal=0.01,
+    w_laplacian=0.1,
 ):
     # Create output directory for visualizations
     os.makedirs("training_progress", exist_ok=True)
@@ -29,93 +41,134 @@ def train(
     # Initialize model, mesh transformer and visualizer
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
-    model = DepthEncoder(num_prototypes=num_prototypes, num_slots=num_slots).to(device)
+    model = DepthEncoder(
+        num_prototypes=num_prototypes, num_slots=num_slots, device=device
+    ).to(device)
     mesh_transformer = MeshTransformer(device=device)
     visualizer = DepthVisualizer(device=device)
 
     # Setup data - get all PNG files in the directory
     depth_files = [(path,) for path in glob(os.path.join(data_path, "*.png"))]
     print(f"Found {len(depth_files)} depth images")
-    data_handler = DataHandler(
-        data=depth_files, transform_fn=transform_fn, test_ratio=0.2, num_workers=4
+
+    # Create PyTorch DataLoaders
+    train_loader, test_loader = create_data_loaders(
+        data=depth_files,
+        transform_fn=transform_fn,
+        batch_size=batch_size,
+        test_ratio=0.2,
+        num_workers=4,
     )
 
-    # Optimizer
+    # Print actual dataset sizes
+    print(
+        f"Training set: {len(train_loader.dataset)} samples, {len(train_loader)} batches"
+    )
+    print(f"Test set: {len(test_loader.dataset)} samples, {len(test_loader)} batches")
+
+    # Optimizer - include both model parameters and prototype offsets
     optimizer = optim.Adam(model.parameters(), lr=lr)
 
     # Training loop
     global_batch = 0
-    for epoch in range(num_epochs):
+    for epoch in tqdm(range(num_epochs), desc="Epochs", position=0):
         model.train()
         total_loss = 0
         num_batches = 0
-        print(f"\nEpoch {epoch+1}/{num_epochs}")
+        tqdm.write(f"\nEpoch {epoch + 1}/{num_epochs}")
 
-        while True:
-            try:
-                # Get batch
-                print("Getting batch...", end="\r")
-                depth_img_3ch, points_list, _ = data_handler.get_train_batch(batch_size)
-                print(
-                    f"Got batch: depth_img shape={depth_img_3ch.shape}, points list length={len(points_list)}"
+        # Create progress bar for batches
+        batch_pbar = tqdm(
+            total=len(train_loader), desc="Batches", position=1, leave=False
+        )
+
+        # Iterate through batches using the DataLoader
+        for batch_idx, (depth_img_3ch, points_list, _) in enumerate(train_loader):
+            # Move to device
+            depth_img_3ch = depth_img_3ch.to(device)
+            points_list = [p.to(device) for p in points_list]
+
+            # Forward pass through encoder
+            scales, transforms, prototype_weights, prototype_offsets = model(
+                depth_img_3ch
+            )
+
+            # Transform meshes
+            transformed_meshes = mesh_transformer.transform_mesh(
+                scales, transforms, prototype_weights, prototype_offsets
+            )
+
+            # Compute chamfer loss
+            chamfer_loss = mesh_transformer.compute_chamfer_loss(
+                transformed_meshes, points_list
+            )
+
+            # Compute prototype regularization losses
+            proto_edge_loss, proto_normal_loss, proto_laplacian_loss = (
+                mesh_transformer.compute_prototype_regularization(prototype_offsets)
+            )
+
+            # Get regularization for final meshes (zeros now)
+            edge_loss, normal_loss, laplacian_loss = (
+                mesh_transformer.compute_regularization_losses(transformed_meshes)
+            )
+
+            # Combine losses with weights
+            loss = (
+                w_chamfer * chamfer_loss
+                + w_edge
+                * proto_edge_loss  # Apply weights to prototype regularization instead
+                + w_normal * proto_normal_loss
+                + w_laplacian * proto_laplacian_loss
+            )
+
+            # Backward pass
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+            # Update metrics
+            total_loss += loss.item()
+            num_batches += 1
+            global_batch += 1
+
+            # Update progress bar with current loss
+            batch_pbar.set_postfix(
+                {
+                    "loss": f"{loss.item():.4f}",
+                    "chamfer": f"{chamfer_loss.item():.4f}",
+                    "edge": f"{proto_edge_loss.item():.4f}",  # Show prototype edge loss
+                }
+            )
+            batch_pbar.update(1)
+
+            # Visualize progress
+            if global_batch % viz_interval == 0:
+                tqdm.write(f"\nBatch {num_batches}: Loss = {loss.item():.4f}")
+                update_progress(
+                    epoch + 1,
+                    global_batch,
+                    loss.item(),
+                    depth_img_3ch,
+                    transformed_meshes,
+                    visualizer,
                 )
 
-                # Move to device
-                depth_img_3ch = depth_img_3ch.to(device)
-                points_list = [p.to(device) for p in points_list]
-
-                # Forward pass through encoder
-                print("Running encoder...", end="\r")
-                scales, transforms, prototype_weights = model(depth_img_3ch)
-                print(
-                    f"Encoder output: scales={scales.shape}, transforms={transforms.shape}, weights={prototype_weights.shape}"
-                )
-
-                # Transform meshes
-                print("Transforming meshes...", end="\r")
-                transformed_meshes = mesh_transformer.transform_mesh(
-                    scales, transforms, prototype_weights
-                )
-                print("Meshes transformed")
-
-                # Compute chamfer loss
-                print("Computing loss...", end="\r")
-                loss = mesh_transformer.compute_chamfer_loss(
-                    transformed_meshes, points_list
-                )
-                print(f"Loss computed: {loss.item():.4f}")
-
-                # Backward pass
-                optimizer.zero_grad()
-                loss.backward()
-                optimizer.step()
-
-                # Update metrics
-                total_loss += loss.item()
-                num_batches += 1
-                global_batch += 1
-
-                # Visualize progress
-                if global_batch % viz_interval == 0:
-                    print(f"\nBatch {num_batches}: Loss = {loss.item():.4f}")
-                    update_progress(
-                        epoch + 1,
-                        global_batch,
-                        loss.item(),
-                        depth_img_3ch,
-                        transformed_meshes,
-                        visualizer,
-                    )
-
-            except StopIteration:
-                break
+        # Close the batch progress bar
+        batch_pbar.close()
 
         # End of epoch
-        avg_loss = total_loss / num_batches
-        print(f"\nEpoch {epoch+1}/{num_epochs}, Average Loss: {avg_loss:.4f}")
+        avg_loss = total_loss / max(num_batches, 1)  # Avoid division by zero
+        tqdm.write(f"\nEpoch {epoch + 1}/{num_epochs}, Average Loss: {avg_loss:.4f}")
 
-        # Reset data handler for next epoch
-        data_handler.reset_train()
+    # After training is complete, generate final visualizations
+    save_final_visualizations(
+        model=model,
+        data_loader=train_loader,
+        num_samples=num_final_samples,
+        visualizer=visualizer,
+        device=device,
+    )
 
 
 if __name__ == "__main__":

@@ -14,4 +14,5 @@ dependencies = [
     "tinygrad>=0.10.0",
     "torch>=2.5.1",
     "trimesh>=4.5.3",
+    "tqdm>=4.66.0",
 ]

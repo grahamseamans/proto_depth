@@ -20,12 +20,16 @@ class MeshTransformer(nn.Module):
         faces = sphere.faces_padded().detach()  # [1, F, 3]
         self.sphere_mesh = Meshes(verts=verts, faces=faces)
 
-    def transform_mesh(self, scales, transforms, prototype_weights):
+        # Store the number of vertices for later use
+        self.num_verts = verts.shape[1]
+
+    def transform_mesh(self, scales, transforms, prototype_weights, prototype_offsets):
         """
         Args:
             scales: Tensor of shape [B, num_slots, 1]
             transforms: Tensor of shape [B, num_slots, num_prototypes, 6] (x,y,z, yaw,pitch,roll)
             prototype_weights: Tensor of shape [B, num_slots, num_prototypes]
+            prototype_offsets: Tensor of shape [num_prototypes, num_verts, 3]
         Returns:
             transformed_meshes: List of B Meshes objects, each containing num_slots meshes
         """
@@ -55,6 +59,12 @@ class MeshTransformer(nn.Module):
                     transform = transforms[b, s, p]  # [6]
                     scale = scales[b, s]  # [1]
 
+                    # Get the vertex offsets for this prototype
+                    offsets = prototype_offsets[p]  # [V, 3]
+
+                    # Apply vertex offsets to create the deformed shape
+                    deformed_verts = slot_verts + offsets
+
                     # Split transform into components
                     translation = transform[:3].view(1, 3)  # [1, 3]
                     rotation = transform[3:]  # [3]
@@ -63,7 +73,7 @@ class MeshTransformer(nn.Module):
                     rot_matrix = t3d.euler_angles_to_matrix(
                         rotation.unsqueeze(0), "XYZ"
                     )  # [1, 3, 3]
-                    rotated = torch.matmul(slot_verts, rot_matrix[0].t())  # [V, 3]
+                    rotated = torch.matmul(deformed_verts, rot_matrix[0].t())  # [V, 3]
                     scaled = rotated * scale
                     translated = scaled + translation
 
@@ -123,3 +133,71 @@ class MeshTransformer(nn.Module):
             total_loss += loss
 
         return total_loss / B
+
+    def compute_prototype_regularization(self, prototype_offsets):
+        """
+        Compute regularization losses for the prototype meshes before any transformation.
+        This ensures the base shapes remain smooth and well-formed.
+
+        Args:
+            prototype_offsets: Tensor of shape [num_prototypes, num_verts, 3]
+        Returns:
+            edge_loss: Edge length regularization loss
+            normal_loss: Normal consistency loss
+            laplacian_loss: Laplacian smoothing loss
+        """
+        num_prototypes = prototype_offsets.shape[0]
+
+        # Get the base sphere mesh (no gradients)
+        with torch.no_grad():
+            base_verts = self.sphere_mesh.verts_padded()  # [1, V, 3]
+            base_faces = self.sphere_mesh.faces_padded()  # [1, F, 3]
+
+        # Initialize losses
+        proto_edge_loss = 0
+        proto_normal_loss = 0
+        proto_laplacian_loss = 0
+
+        # For each prototype, apply offsets and compute regularization
+        for p in range(num_prototypes):
+            # Apply offsets to create the prototype mesh
+            proto_verts = base_verts + prototype_offsets[p].unsqueeze(0)
+            proto_mesh = Meshes(verts=proto_verts, faces=base_faces)
+
+            # Compute regularization losses for this prototype
+            edge_loss = pytorch3d.loss.mesh_edge_loss(proto_mesh)
+            normal_loss = pytorch3d.loss.mesh_normal_consistency(proto_mesh)
+            laplacian_loss = pytorch3d.loss.mesh_laplacian_smoothing(
+                proto_mesh, method="uniform"
+            )
+
+            # Add to total losses
+            proto_edge_loss += edge_loss
+            proto_normal_loss += normal_loss
+            proto_laplacian_loss += laplacian_loss
+
+        # Average over all prototypes
+        return (
+            proto_edge_loss / num_prototypes,
+            proto_normal_loss / num_prototypes,
+            proto_laplacian_loss / num_prototypes,
+        )
+
+    # Keeping this for backward compatibility, but returning zeros
+    def compute_regularization_losses(self, meshes):
+        """
+        This function is maintained for backward compatibility but now returns zeros
+        as we're moving regularization to the prototype level instead.
+
+        Args:
+            meshes: List of B Meshes objects, each containing num_slots meshes
+        Returns:
+            edge_loss: Edge length regularization loss (zero)
+            normal_loss: Normal consistency loss (zero)
+            laplacian_loss: Laplacian smoothing loss (zero)
+        """
+        return (
+            torch.tensor(0.0, device=self.device),
+            torch.tensor(0.0, device=self.device),
+            torch.tensor(0.0, device=self.device),
+        )
