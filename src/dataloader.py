@@ -61,13 +61,16 @@ def transform_fn(data_item):
     depth_img = torch.from_numpy(depth_normalized[None].astype(np.float32))  # (1,H,W)
     depth_img_3ch = depth_img.expand(3, -1, -1)  # (3,H,W)
 
+    # Also keep the original depth in meters for visualization
+    depth_meters = torch.from_numpy(depth[None].astype(np.float32))  # (1,H,W)
+
     points = depth_to_pointcloud(depth)
     # Subsample points to a fixed size to ensure consistent tensor dimensions
     points = stratified_depth_sampling(points, bins=5, samples_per_bin=2000)
     points_t = torch.from_numpy(points.astype(np.float32))  # (N,3)
 
-    # return (input, target) format
-    return (depth_img_3ch, points_t, None)
+    # return (input, target, original_depth) format
+    return (depth_img_3ch, points_t, depth_meters)
 
 
 ###################################

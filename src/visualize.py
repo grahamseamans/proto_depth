@@ -44,34 +44,45 @@ class DepthVisualizer:
         depth = fragments.zbuf[..., 0]  # [B, H, W]
         return depth
 
-    def visualize_comparison(self, input_depth, predicted_meshes, title=None):
+    def visualize_comparison(
+        self, input_depth, predicted_meshes, title=None, original_depth=None
+    ):
         """
         Create a side-by-side visualization of input depth map and predicted scene
         Args:
-            input_depth: [B, 3, H, W] input depth map tensor
+            input_depth: [B, 3, H, W] input depth map tensor (normalized 0-1)
             predicted_meshes: List of B Meshes objects from MeshTransformer
             title: Optional title for the plot
+            original_depth: [B, 1, H, W] original depth map tensor in meters (unnormalized)
         """
-        # Convert input depth to numpy (take first channel since they're all the same)
-        input_depth_np = input_depth[0, 0].cpu().numpy()
-
-        # Render predicted meshes
+        # Render predicted meshes to get depth in meters
         with torch.no_grad():
             predicted_depth = self.render_depth(predicted_meshes[0])
             predicted_depth_np = predicted_depth[0].cpu().numpy()
 
+        # Use original depth in meters if provided, otherwise use normalized
+        if original_depth is not None:
+            input_depth_np = original_depth[0, 0].cpu().numpy()
+        else:
+            # Fallback to normalized depth if original not provided
+            input_depth_np = input_depth[0, 0].cpu().numpy()
+
         # Create figure
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 5))
 
-        # Plot input depth
-        im1 = ax1.imshow(input_depth_np, cmap="viridis")
-        ax1.set_title("Input Depth Map")
-        plt.colorbar(im1, ax=ax1)
+        # Determine common colormap range for consistency
+        vmin = min(input_depth_np.min(), predicted_depth_np.min())
+        vmax = max(input_depth_np.max(), predicted_depth_np.max())
 
-        # Plot predicted depth
-        im2 = ax2.imshow(predicted_depth_np, cmap="viridis")
-        ax2.set_title("Predicted Scene Depth")
-        plt.colorbar(im2, ax=ax2)
+        # Plot input depth in meters
+        im1 = ax1.imshow(input_depth_np, cmap="viridis", vmin=vmin, vmax=vmax)
+        ax1.set_title("Input Depth Map (meters)")
+        plt.colorbar(im1, ax=ax1, label="Depth (m)")
+
+        # Plot predicted depth in meters
+        im2 = ax2.imshow(predicted_depth_np, cmap="viridis", vmin=vmin, vmax=vmax)
+        ax2.set_title("Predicted Scene Depth (meters)")
+        plt.colorbar(im2, ax=ax2, label="Depth (m)")
 
         if title:
             fig.suptitle(title)
@@ -80,15 +91,27 @@ class DepthVisualizer:
         return fig
 
 
-def update_progress(epoch, batch, loss, input_depth, predicted_meshes, visualizer):
+def update_progress(
+    epoch, batch, loss, input_depth, predicted_meshes, visualizer, original_depth=None
+):
     """
     Update training progress with visualization
+
+    Args:
+        epoch: Current epoch number
+        batch: Current batch number
+        loss: Current loss value
+        input_depth: [B, 3, H, W] input normalized depth tensor
+        predicted_meshes: List of predicted meshes
+        visualizer: DepthVisualizer instance
+        original_depth: [B, 1, H, W] original depth tensor in meters (optional)
     """
     # Create visualization
     fig = visualizer.visualize_comparison(
         input_depth,
         predicted_meshes,
         title=f"Epoch {epoch}, Batch {batch}, Loss: {loss:.4f}",
+        original_depth=original_depth,
     )
 
     # Save the figure
@@ -114,7 +137,7 @@ def save_final_visualizations(model, data_loader, num_samples, visualizer, devic
     model.eval()
 
     # Get the first batch from the data loader
-    depth_img_3ch, points_list, _ = next(iter(data_loader))
+    depth_img_3ch, points_list, original_depth = next(iter(data_loader))
 
     # Determine how many samples we can use from this batch
     batch_size = depth_img_3ch.shape[0]
@@ -126,6 +149,11 @@ def save_final_visualizations(model, data_loader, num_samples, visualizer, devic
     for i in range(samples_to_process):
         # Get single sample and move to device
         input_depth = depth_img_3ch[i : i + 1].to(device)
+
+        # Get original depth if available
+        orig_depth = None
+        if original_depth is not None:
+            orig_depth = original_depth[i : i + 1].to(device)
 
         # Forward pass
         with torch.no_grad():
@@ -139,9 +167,12 @@ def save_final_visualizations(model, data_loader, num_samples, visualizer, devic
                 scales, transforms, prototype_weights, prototype_offsets
             )
 
-        # Create visualization
+        # Create visualization with original depth
         fig = visualizer.visualize_comparison(
-            input_depth, transformed_meshes, title=f"Sample {i + 1}"
+            input_depth,
+            transformed_meshes,
+            title=f"Sample {i + 1}",
+            original_depth=orig_depth,
         )
 
         # Save the figure

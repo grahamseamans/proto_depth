@@ -83,10 +83,14 @@ def train(
         )
 
         # Iterate through batches using the DataLoader
-        for batch_idx, (depth_img_3ch, points_list, _) in enumerate(train_loader):
+        for batch_idx, (depth_img_3ch, points_list, original_depth) in enumerate(
+            train_loader
+        ):
             # Move to device
             depth_img_3ch = depth_img_3ch.to(device)
             points_list = [p.to(device) for p in points_list]
+            if original_depth is not None:
+                original_depth = original_depth.to(device)
 
             # Forward pass through encoder
             scales, transforms, prototype_weights, prototype_offsets = model(
@@ -152,6 +156,7 @@ def train(
                     depth_img_3ch,
                     transformed_meshes,
                     visualizer,
+                    original_depth=original_depth,
                 )
 
         # Close the batch progress bar

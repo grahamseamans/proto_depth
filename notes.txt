@@ -1,0 +1,7 @@
+make sure that slots can scale to be massive (i think that they can and are)
+
+make sure that multiple slots are rendered into the env for the guess, it sure looks like I just have one oblong sphere
+
+check on the input to the nn, and the ground truth.
+- we probably want to log-scale distances
+- we probably want to clip to nan far away values in the label, so they're not sampled for loss
