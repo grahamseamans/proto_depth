@@ -76,8 +76,18 @@ class DepthEncoder(nn.Module):
 
         # Apply scaling to create scene-scale transforms
         scene_scale_transforms = torch.zeros_like(raw_transforms)
-        # Positions need large range (meters) - use softplus with scaling
-        scene_scale_transforms[..., :3] = F.softplus(raw_transforms[..., :3]) * 50.0
+
+        # MODIFIED: Positions need large range (meters) - use softplus with increased scaling
+        # Old value was 50.0, increasing to 100.0 to make shapes more visible
+        position_scale = 100.0
+        # Also add a minimum offset to ensure positions are not too close to zero
+        min_position_offset = 10.0  # Minimum 10 meters
+
+        # Apply scaling and offset to positions
+        scene_scale_transforms[..., :3] = (
+            F.softplus(raw_transforms[..., :3]) * position_scale + min_position_offset
+        )
+
         # Rotations bounded to [-π, π] - use tanh with pi scaling
         scene_scale_transforms[..., 3:] = torch.tanh(raw_transforms[..., 3:]) * math.pi
 
@@ -85,4 +95,41 @@ class DepthEncoder(nn.Module):
         logits = slots[..., 1 + transform_dim :]  # [B, num_slots, num_prototypes]
         prototype_weights = torch.softmax(logits, dim=-1)
 
-        return scales, scene_scale_transforms, prototype_weights, self.prototype_offsets
+        # MODIFIED: Scale up the overall model scales to make shapes more visible
+        # Old scales were just softplus, multiply by a factor for more visibility
+        scale_multiplier = 5.0
+        scaled_scales = scales * scale_multiplier
+
+        # Print debug info about scales and positions for the first batch
+        if B > 0:
+            print(f"\nDEBUG MODEL OUTPUT:")
+            print(
+                f"  Raw scales (before multiplier): Min={scales[0].min().item():.4f}, Max={scales[0].max().item():.4f}"
+            )
+            print(
+                f"  Final scales (after multiplier): Min={scaled_scales[0].min().item():.4f}, Max={scaled_scales[0].max().item():.4f}"
+            )
+
+            # Check position values
+            position_min = scene_scale_transforms[0, :, :, :3].min().item()
+            position_max = scene_scale_transforms[0, :, :, :3].max().item()
+            position_mean = scene_scale_transforms[0, :, :, :3].mean().item()
+            print(
+                f"  Position values: Min={position_min:.4f}, Max={position_max:.4f}, Mean={position_mean:.4f}"
+            )
+
+            # Check prototype weights
+            weight_max = prototype_weights[0].max().item()
+            weight_min = prototype_weights[0].min().item()
+            print(f"  Prototype weights: Min={weight_min:.4f}, Max={weight_max:.4f}")
+            print(
+                f"  Number of weights > 0.1: {(prototype_weights[0] > 0.1).sum().item()}"
+            )
+            print("==========================================\n")
+
+        return (
+            scaled_scales,
+            scene_scale_transforms,
+            prototype_weights,
+            self.prototype_offsets,
+        )

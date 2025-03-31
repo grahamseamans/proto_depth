@@ -69,6 +69,7 @@ ssh -p $REMOTE_PORT -o StrictHostKeyChecking=accept-new $REMOTE_HOST << EOF
     # Install additional dependencies
     conda install -y matplotlib tqdm
     conda install -y numpy=1.24.3  # Specific version for compatibility
+    conda install -y plotly         # For interactive 3D visualizations
     
     # Install PyTorch3D from conda-forge
     conda install -y pytorch3d -c pytorch3d -c conda-forge

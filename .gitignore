@@ -8,6 +8,8 @@ wheels/
 
 instance_address.txt
 
+training_progress_3d/
+
 # Virtual environments
 .venv
 .env

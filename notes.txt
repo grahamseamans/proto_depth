@@ -5,3 +5,5 @@ make sure that multiple slots are rendered into the env for the guess, it sure l
 check on the input to the nn, and the ground truth.
 - we probably want to log-scale distances
 - we probably want to clip to nan far away values in the label, so they're not sampled for loss
+
+one option is that the camera isn't pointing in the right direction at all?

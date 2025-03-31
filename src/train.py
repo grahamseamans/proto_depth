@@ -18,6 +18,7 @@ from .model import DepthEncoder
 from .mesh_utils import MeshTransformer
 from .dataloader import DataHandler, transform_fn, create_data_loaders
 from .visualize import DepthVisualizer, update_progress, save_final_visualizations
+from .visualize_3d import visualize_3d_comparison
 
 
 def train(
@@ -156,6 +157,7 @@ def train(
                     f"Global Chamfer = {global_chamfer_loss.item():.4f}, "
                     f"Per-slot Chamfer = {per_slot_chamfer_loss.item():.4f}"
                 )
+                # Standard 2D depth map visualization
                 update_progress(
                     epoch + 1,
                     global_batch,
@@ -166,6 +168,18 @@ def train(
                     original_depth=original_depth,
                     global_chamfer=global_chamfer_loss.item(),
                     per_slot_chamfer=per_slot_chamfer_loss.item(),
+                    scales=scales,
+                    transforms=transforms,
+                    prototype_weights=prototype_weights,
+                )
+
+                # 3D visualization at the same frequency as regular visualization
+                visualize_3d_comparison(
+                    points_list,
+                    transformed_meshes,
+                    epoch=epoch + 1,
+                    batch=global_batch,
+                    device=device,
                 )
 
         # Close the batch progress bar

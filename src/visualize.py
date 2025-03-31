@@ -20,10 +20,22 @@ class DepthVisualizer:
         self.device = device
         self.image_size = image_size
 
-        # Setup camera (assuming a reasonable default view)
+        # Using actual SYNTHIA camera parameters
+        # FOCAL value from dataloader.py
+        focal_length = 847.630211643
+        focal_length_ndc = focal_length / (image_size / 2)  # Convert to NDC
+
+        # Create rotation matrix to flip the camera direction
+        # This makes PyTorch3D camera look along +Z (like SYNTHIA) instead of -Z
+        R = torch.tensor([[-1, 0, 0], [0, -1, 0], [0, 0, -1]], device=device).unsqueeze(
+            0
+        )
+
+        # Setup camera with correct parameters matching the dataset
         self.cameras = PerspectiveCameras(
-            focal_length=1.0,
-            principal_point=((0.0, 0.0),),
+            focal_length=((focal_length_ndc, focal_length_ndc),),
+            principal_point=((0.0, 0.0),),  # Center of image
+            R=R,  # This flips camera to look along +Z
             image_size=((image_size, image_size),),
             device=device,
         )
@@ -84,6 +96,54 @@ class DepthVisualizer:
         ax2.set_title("Predicted Scene Depth (meters)")
         plt.colorbar(im2, ax=ax2, label="Depth (m)")
 
+        # Mark slot centers on the predicted depth image if we have multiple slots
+        mesh = predicted_meshes[0]  # First batch item's mesh
+        num_slots = len(mesh.verts_list())
+        if num_slots > 0:
+            img_height, img_width = predicted_depth_np.shape
+            # Mark each slot center with a colored cross
+            for s in range(num_slots):
+                verts = mesh.verts_list()[s]
+                if verts.shape[0] > 0:  # Check if the mesh has any vertices
+                    # Get mean position in 3D space
+                    mean_pos = torch.mean(verts, dim=0).detach().cpu().numpy()
+
+                    # Convert 3D position to 2D image coordinates (approximate)
+                    # This assumes a perspective projection similar to the renderer
+                    # Z is the depth (smaller Z is closer to camera)
+                    if mean_pos[2] > 0:  # Only if the Z position is valid
+                        # Use proper camera projection for 3D to 2D conversion
+                        # Convert world coordinates to screen coordinates
+                        world_coords = torch.tensor(
+                            [mean_pos], device=self.device
+                        ).unsqueeze(0)  # [1,1,3]
+                        projected_coords = self.cameras.transform_points_screen(
+                            world_coords, image_size=((img_height, img_width),)
+                        )[0, 0]  # Get x,y for the point
+
+                        x_px, y_px = (
+                            int(projected_coords[0].item()),
+                            int(projected_coords[1].item()),
+                        )
+
+                        # Ensure they're in the image bounds
+                        if 0 <= x_px < img_width and 0 <= y_px < img_height:
+                            # Draw a colored cross for each slot
+                            color = plt.cm.tab10(
+                                s % 10
+                            )  # Use tab10 colormap for distinct colors
+                            marker_size = 100
+                            ax2.scatter(
+                                x_px,
+                                y_px,
+                                s=marker_size,
+                                c=[color],
+                                marker="x",
+                                linewidths=2,
+                                zorder=10,
+                                label=f"Slot {s}",
+                            )
+
         if title:
             fig.suptitle(title)
 
@@ -101,6 +161,9 @@ def update_progress(
     original_depth=None,
     global_chamfer=None,
     per_slot_chamfer=None,
+    scales=None,
+    transforms=None,
+    prototype_weights=None,
 ):
     """
     Update training progress with visualization
@@ -115,7 +178,60 @@ def update_progress(
         original_depth: [B, 1, H, W] original depth tensor in meters (optional)
         global_chamfer: Global chamfer loss value (optional)
         per_slot_chamfer: Per-slot chamfer loss value (optional)
+        scales: [B, num_slots, 1] scale factors (optional, for debugging)
+        transforms: [B, num_slots, num_prototypes, 6] transforms (optional, for debugging)
+        prototype_weights: [B, num_slots, num_prototypes] weights (optional, for debugging)
     """
+    # Debug slot information
+    print(f"\n======= DEBUG INFO FOR EPOCH {epoch}, BATCH {batch} =======")
+
+    # Print slot statistics from predicted meshes
+    mesh = predicted_meshes[0]  # First batch item's mesh
+    num_slots = len(mesh.verts_list())
+
+    print(f"Number of slots: {num_slots}")
+
+    # Print mesh-derived information
+    print("\nSlot vertices statistics:")
+    for s in range(num_slots):
+        verts = mesh.verts_list()[s]
+        if verts.shape[0] > 0:  # Check if the mesh has any vertices
+            mean_pos = torch.mean(verts, dim=0).detach()
+            min_pos = torch.min(verts, dim=0)[0].detach()
+            max_pos = torch.max(verts, dim=0)[0].detach()
+            print(f"  Slot {s}: Mean position: {mean_pos.tolist()}")
+            print(f"         Min position: {min_pos.tolist()}")
+            print(f"         Max position: {max_pos.tolist()}")
+            print(f"         Bounding box size: {(max_pos - min_pos).tolist()}")
+
+    # Print original parameter values if provided
+    if scales is not None and transforms is not None and prototype_weights is not None:
+        print("\nModel output parameters:")
+        print(f"  Scales: {scales[0].squeeze().detach().tolist()}")  # First batch item
+
+        print("\n  Transforms (position components):")
+        for s in range(transforms.shape[1]):  # For each slot
+            positions = []
+            for p in range(transforms.shape[2]):  # For each prototype
+                pos = (
+                    transforms[0, s, p, :3].detach().tolist()
+                )  # First batch, position components
+                positions.append(pos)
+            print(f"    Slot {s}: {positions}")
+
+        print("\n  Prototype weights:")
+        for s in range(prototype_weights.shape[1]):  # For each slot
+            weights = prototype_weights[0, s].detach().tolist()  # First batch
+            print(f"    Slot {s}: {weights}")
+            print(
+                f"    Max weight index: {torch.argmax(prototype_weights[0, s]).detach().item()}"
+            )
+            print(
+                f"    Max weight value: {torch.max(prototype_weights[0, s]).detach().item():.4f}"
+            )
+
+    print("=================================================\n")
+
     # Create title with loss information
     title = f"Epoch {epoch}, Batch {batch}, Loss: {loss:.4f}"
     if global_chamfer is not None and per_slot_chamfer is not None:
