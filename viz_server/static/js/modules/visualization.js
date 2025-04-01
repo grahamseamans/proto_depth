@@ -250,10 +250,15 @@ function renderPrototypes(prototypesData) {
         title.textContent = `Prototype ${i + 1}`;
         cardBody.appendChild(title);
 
+        // Create 3D view container with proper square aspect ratio
         const viewContainer = document.createElement('div');
-        viewContainer.className = 'panel-3d aspect-square';
-        viewContainer.style.height = '150px';
+        viewContainer.className = 'prototype-view'; // Use our new CSS class that ensures square aspect
         cardBody.appendChild(viewContainer);
+
+        // Create renderer container inside the square container
+        const rendererContainer = document.createElement('div');
+        rendererContainer.className = 'prototype-renderer';
+        viewContainer.appendChild(rendererContainer);
 
         // Create the THREE.js components for this view
         const scene = new THREE.Scene();
@@ -266,8 +271,10 @@ function renderPrototypes(prototypesData) {
 
         const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setPixelRatio(window.devicePixelRatio);
-        renderer.setSize(viewContainer.clientWidth, viewContainer.clientHeight);
-        viewContainer.appendChild(renderer.domElement);
+
+        // Use rendererContainer instead of viewContainer
+        renderer.setSize(rendererContainer.clientWidth || 200, rendererContainer.clientHeight || 200);
+        rendererContainer.appendChild(renderer.domElement);
         window.prototypeRenderers.push(renderer);
 
         const controls = new THREE.OrbitControls(camera, renderer.domElement);
@@ -335,6 +342,27 @@ function renderPrototypes(prototypesData) {
     if (!window.simplifiedAnimationActive) {
         window.simplifiedAnimationActive = true;
         animateSimplified();
+    }
+
+    // Add resize handler if not already added
+    if (!window.prototypeResizeHandlerAdded) {
+        window.addEventListener('resize', function () {
+            // Update renderer sizes on window resize
+            for (let i = 0; i < window.prototypeRenderers.length; i++) {
+                const renderer = window.prototypeRenderers[i];
+                const camera = window.prototypeCameras[i];
+                if (renderer && renderer.domElement && renderer.domElement.parentElement) {
+                    const parent = renderer.domElement.parentElement;
+                    renderer.setSize(parent.clientWidth || 200, parent.clientHeight || 200);
+                    // Maintain 1:1 aspect ratio
+                    if (camera) {
+                        camera.aspect = 1;
+                        camera.updateProjectionMatrix();
+                    }
+                }
+            }
+        });
+        window.prototypeResizeHandlerAdded = true;
     }
 }
 

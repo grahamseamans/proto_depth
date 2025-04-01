@@ -10,7 +10,7 @@ function initializeRenderers() {
     scenes.unified = new THREE.Scene();
     scenes.unified.background = new THREE.Color(0x15191E);
     cameras.unified = new THREE.PerspectiveCamera(75, 1, 0.1, 1000);
-    cameras.unified.position.set(0, 0, 2);
+    cameras.unified.position.set(0, 0, 0.01);
     renderers.unified = new THREE.WebGLRenderer({ antialias: true });
     renderers.unified.setPixelRatio(window.devicePixelRatio);
     controls.unified = new THREE.OrbitControls(cameras.unified, renderers.unified.domElement);

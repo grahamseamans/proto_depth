@@ -24,6 +24,23 @@
             height: 100%;
         }
 
+        /* Square aspect ratio container for prototype views */
+        .prototype-view {
+            position: relative;
+            width: 100%;
+            padding-bottom: 100%;
+            /* Creates a square aspect ratio */
+        }
+
+        /* Container for the actual THREE.js canvas inside the square container */
+        .prototype-renderer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+
         canvas {
             width: 100% !important;
             height: 100% !important;
@@ -147,28 +164,34 @@
 
         <!-- Prototypes View (initially hidden) -->
         <div id="prototypes-view" class="visualization-container hidden">
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 h-full">
-                <!-- Prototype Shapes - Takes 2/3 of space on medium and larger screens -->
-                <div class="md:col-span-2 card bg-base-100 shadow-xl h-full">
-                    <div class="card-body p-2 h-full">
-                        <h2 class="card-title">Prototype Shapes</h2>
-                        <p class="text-sm">Each prototype is shown in its own view, centered at the origin.</p>
+            <div class="flex flex-col md:flex-row h-full gap-4">
+                <!-- Left Column: Prototype Shapes (scrollable) -->
+                <div class="md:w-2/3 h-full flex flex-col">
+                    <div class="card bg-base-100 shadow-xl h-full">
+                        <div class="card-body p-2 flex flex-col h-full">
+                            <h2 class="card-title">Prototype Shapes</h2>
+                            <p class="text-sm">Each prototype is shown in its own view, centered at the origin.</p>
 
-                        <!-- Grid of prototype views -->
-                        <div id="prototypes-grid"
-                            class="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-4 overflow-auto h-full p-2">
-                            <!-- Individual prototype views will be created here dynamically -->
+                            <!-- Scrollable container for prototype grid -->
+                            <div class="flex-grow overflow-auto">
+                                <div id="prototypes-grid"
+                                    class="grid grid-cols-2 md:grid-cols-2 lg:grid-cols-3 gap-4 p-2">
+                                    <!-- Individual prototype views will be created here dynamically -->
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
 
-                <!-- Prototype Weights - Takes 1/3 of space -->
-                <div class="card bg-base-100 shadow-xl h-full">
-                    <div class="card-body p-2 h-full flex flex-col">
-                        <h2 class="card-title">Prototype Weights</h2>
-                        <p class="text-sm">Weight distribution of prototypes across slots.</p>
-                        <div class="flex-grow flex items-center justify-center">
-                            <canvas id="weights-chart"></canvas>
+                <!-- Right Column: Prototype Weights (fixed, not in scroll area) -->
+                <div class="md:w-1/3 h-full">
+                    <div class="card bg-base-100 shadow-xl h-full">
+                        <div class="card-body p-2 flex flex-col h-full">
+                            <h2 class="card-title">Prototype Weights</h2>
+                            <p class="text-sm">Weight distribution of prototypes across slots.</p>
+                            <div class="flex-grow flex items-center justify-center">
+                                <canvas id="weights-chart"></canvas>
+                            </div>
                         </div>
                     </div>
                 </div>
