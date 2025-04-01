@@ -44,7 +44,13 @@ function createWeightCharts(batchData) {
     const labels = Array.from({ length: numPrototypes }, (_, i) => `Proto ${i + 1}`);
 
     // Initialize Chart.js
-    const ctx = document.getElementById('weights-chart').getContext('2d');
+    if (!elements.weightsChart) {
+        console.error("Could not find weights chart element");
+        return;
+    }
+
+    console.log("Creating weight chart with data:", weights);
+    const ctx = elements.weightsChart.getContext('2d');
     const chart = new Chart(ctx, {
         type: 'bar',
         data: {

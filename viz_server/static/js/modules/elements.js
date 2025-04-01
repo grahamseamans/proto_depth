@@ -15,10 +15,11 @@ const elements = {
     mainView: document.getElementById('main-view'),
     prototypesView: document.getElementById('prototypes-view'),
     unifiedContainer: document.getElementById('unified-container'),
-    prototypesContainer: document.getElementById('prototypes-container'),
+    prototypesGrid: document.getElementById('prototypes-grid'),
     prototypeWeightsContainer: document.getElementById('prototype-weights-container'),
     slotToggles: document.getElementById('slot-toggles'),
     weightChart: document.getElementById('weight-chart'),
+    weightsChart: document.getElementById('weights-chart'), // New weights chart canvas
     loading: document.getElementById('loading'),
 
     // New UI controls

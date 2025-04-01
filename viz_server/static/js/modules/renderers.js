@@ -16,7 +16,7 @@ function initializeRenderers() {
     controls.unified = new THREE.OrbitControls(cameras.unified, renderers.unified.domElement);
     elements.unifiedContainer.appendChild(renderers.unified.domElement);
 
-    // Prototypes renderer (unchanged)
+    // Initialize prototypes renderer (still needed for compatibility)
     scenes.prototypes = new THREE.Scene();
     scenes.prototypes.background = new THREE.Color(0x15191E);
     cameras.prototypes = new THREE.PerspectiveCamera(75, 1, 0.1, 1000);
@@ -24,7 +24,7 @@ function initializeRenderers() {
     renderers.prototypes = new THREE.WebGLRenderer({ antialias: true });
     renderers.prototypes.setPixelRatio(window.devicePixelRatio);
     controls.prototypes = new THREE.OrbitControls(cameras.prototypes, renderers.prototypes.domElement);
-    elements.prototypesContainer.appendChild(renderers.prototypes.domElement);
+    // Do not append to DOM since we're using a different approach now
 
     // Add axes helpers to all scenes
     addAxes(scenes.unified);
@@ -81,14 +81,18 @@ function resizeRenderers() {
         cameras.unified.updateProjectionMatrix();
     }
 
-    // Prototypes
-    if (renderers.prototypes && elements.prototypesContainer.offsetWidth > 0) {
-        const prototypesWidth = elements.prototypesContainer.clientWidth;
-        const prototypesHeight = elements.prototypesContainer.clientHeight;
-        renderers.prototypes.setSize(prototypesWidth, prototypesHeight);
-        cameras.prototypes.aspect = prototypesWidth / prototypesHeight;
-        cameras.prototypes.updateProjectionMatrix();
+    // Original prototypes renderer (for compatibility)
+    if (renderers.prototypes) {
+        // We need to keep it sized sensibly even if not attached to DOM
+        renderers.prototypes.setSize(500, 500);
+        if (cameras.prototypes) {
+            cameras.prototypes.aspect = 1;
+            cameras.prototypes.updateProjectionMatrix();
+        }
     }
+
+    // Individual prototype views are resized when they're created, and their
+    // size is fixed to ensure a consistent grid layout
 }
 
 /**
@@ -97,11 +101,17 @@ function resizeRenderers() {
 function animate() {
     requestAnimationFrame(animate);
 
+    // Update and render the unified view
     if (controls.unified) controls.unified.update();
-    if (controls.prototypes) controls.prototypes.update();
-
     if (renderers.unified) renderers.unified.render(scenes.unified, cameras.unified);
-    if (renderers.prototypes) renderers.prototypes.render(scenes.prototypes, cameras.prototypes);
+
+    // Update and render the old prototypes view (still needed for compatibility)
+    if (controls.prototypes) controls.prototypes.update();
+    if (renderers.prototypes && scenes.prototypes) {
+        renderers.prototypes.render(scenes.prototypes, cameras.prototypes);
+    }
+
+    // Our individual prototype views are handled in their own animation loop
 }
 
 /**
@@ -115,11 +125,30 @@ function resetAllViews() {
         controls.unified.reset();
     }
 
-    // Reset prototypes view
+    // Reset original prototypes view (for compatibility)
     if (cameras.prototypes && controls.prototypes) {
         cameras.prototypes.position.set(0, 0, 2);
         cameras.prototypes.lookAt(0, 0, 0);
         controls.prototypes.reset();
+
+        // Re-render this view
+        if (renderers.prototypes && scenes.prototypes) {
+            renderers.prototypes.render(scenes.prototypes, cameras.prototypes);
+        }
+    }
+
+    // Reset all individual prototype views
+    for (let i = 0; i < cameras.prototypeCameras.length; i++) {
+        if (cameras.prototypeCameras[i] && controls.prototypeControls[i]) {
+            cameras.prototypeCameras[i].position.set(0, 0, 1.2);
+            cameras.prototypeCameras[i].lookAt(0, 0, 0);
+            controls.prototypeControls[i].reset();
+
+            // Re-render this view
+            if (renderers.prototypeRenderers[i] && scenes.prototypeScenes[i]) {
+                renderers.prototypeRenderers[i].render(scenes.prototypeScenes[i], cameras.prototypeCameras[i]);
+            }
+        }
     }
 }
 

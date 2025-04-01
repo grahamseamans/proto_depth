@@ -26,22 +26,26 @@ const objects = {
 // Three.js components
 const renderers = {
     unified: null, // Single renderer for the integrated view
-    prototypes: null,
+    prototypes: null, // Original property name for compatibility
+    prototypeRenderers: [] // Array for our multiple prototype views
 };
 
 const scenes = {
     unified: null, // Single scene containing both point cloud and slots
-    prototypes: null,
+    prototypes: null, // Original property name for compatibility
+    prototypeScenes: [] // Array for our multiple prototype views
 };
 
 const cameras = {
     unified: null, // Single camera for the integrated view
-    prototypes: null,
+    prototypes: null, // Original property name for compatibility
+    prototypeCameras: [] // Array for our multiple prototype views
 };
 
 const controls = {
     unified: null, // Single controls for the integrated view
-    prototypes: null,
+    prototypes: null, // Original property name for compatibility  
+    prototypeControls: [] // Array for our multiple prototype views
 };
 
 // Charts

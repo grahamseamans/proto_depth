@@ -174,71 +174,227 @@ function renderSlots(slotsData) {
 }
 
 /**
- * Render prototype visualizations
+ * Render prototype visualizations in individual 3D views - simplified version
  */
 function renderPrototypes(prototypesData) {
-    // Clear existing prototypes
-    for (const proto of objects.prototypes) {
-        scenes.prototypes.remove(proto);
-    }
-    objects.prototypes = [];
+    console.log("Rendering prototypes with data:", prototypesData);
 
+    // Initialize or clear global arrays - avoid relying on existing state
+    window.prototypeScenes = window.prototypeScenes || [];
+    window.prototypeCameras = window.prototypeCameras || [];
+    window.prototypeControls = window.prototypeControls || [];
+    window.prototypeRenderers = window.prototypeRenderers || [];
+    window.prototypeMeshes = window.prototypeMeshes || [];
+
+    // Clear DOM elements
+    if (elements.prototypesGrid) {
+        elements.prototypesGrid.innerHTML = "";
+    } else {
+        console.error("Prototype grid element not found");
+        return;
+    }
+
+    // Clean up existing renderers and their DOM elements
+    window.prototypeRenderers.forEach(renderer => {
+        if (renderer && renderer.domElement && renderer.domElement.parentNode) {
+            renderer.domElement.parentNode.removeChild(renderer.domElement);
+            renderer.dispose();
+        }
+    });
+
+    // Clear arrays
+    window.prototypeScenes = [];
+    window.prototypeCameras = [];
+    window.prototypeControls = [];
+    window.prototypeRenderers = [];
+    window.prototypeMeshes = [];
+
+    // Also clear existing prototypes in the original objects array
+    if (objects.prototypes) {
+        while (objects.prototypes.length > 0) {
+            const prototype = objects.prototypes.pop();
+            if (prototype && prototype.parent) {
+                prototype.parent.remove(prototype);
+            }
+        }
+    } else {
+        // If objects.prototypes doesn't exist, create it
+        objects.prototypes = [];
+    }
+
+    // Check if we have valid data
     if (!prototypesData || !prototypesData.offsets || prototypesData.offsets.length === 0) {
         console.warn('No prototype data available');
         return;
     }
 
-    // Create a grid layout for prototypes
     const numPrototypes = prototypesData.num_prototypes;
-    const gridSize = Math.ceil(Math.sqrt(numPrototypes));
-    const spacing = 1.5;
+    console.log(`Creating ${numPrototypes} prototype views`);
 
-    // For now, just visualize prototype positions as spheres
-    const sphereGeometry = new THREE.SphereGeometry(0.2, 32, 32);
+    // Base geometry for all prototypes
+    const baseSphereGeometry = new THREE.IcosahedronGeometry(0.2, 4);
 
+    // Create a grid of prototype views
     for (let i = 0; i < numPrototypes; i++) {
-        const row = Math.floor(i / gridSize);
-        const col = i % gridSize;
+        // Create container elements
+        const container = document.createElement('div');
+        container.className = 'card bg-base-100 shadow-xl';
+        elements.prototypesGrid.appendChild(container);
 
+        const cardBody = document.createElement('div');
+        cardBody.className = 'card-body p-2';
+        container.appendChild(cardBody);
+
+        const title = document.createElement('h3');
+        title.className = 'card-title text-sm justify-center';
+        title.textContent = `Prototype ${i + 1}`;
+        cardBody.appendChild(title);
+
+        const viewContainer = document.createElement('div');
+        viewContainer.className = 'panel-3d aspect-square';
+        viewContainer.style.height = '150px';
+        cardBody.appendChild(viewContainer);
+
+        // Create the THREE.js components for this view
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x15191E);
+        window.prototypeScenes.push(scene);
+
+        const camera = new THREE.PerspectiveCamera(75, 1, 0.1, 1000);
+        camera.position.set(0, 0, 1.2);
+        window.prototypeCameras.push(camera);
+
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.setSize(viewContainer.clientWidth, viewContainer.clientHeight);
+        viewContainer.appendChild(renderer.domElement);
+        window.prototypeRenderers.push(renderer);
+
+        const controls = new THREE.OrbitControls(camera, renderer.domElement);
+        controls.enableDamping = true;
+        controls.dampingFactor = 0.25;
+        window.prototypeControls.push(controls);
+
+        // Add lighting
+        const ambientLight = new THREE.AmbientLight(0x404040);
+        scene.add(ambientLight);
+
+        const directionalLight1 = new THREE.DirectionalLight(0xffffff, 0.5);
+        directionalLight1.position.set(1, 1, 1);
+        scene.add(directionalLight1);
+
+        const directionalLight2 = new THREE.DirectionalLight(0xffffff, 0.3);
+        directionalLight2.position.set(-1, -1, -1);
+        scene.add(directionalLight2);
+
+        // Add axes helper
+        const axes = new THREE.AxesHelper(0.3);
+        scene.add(axes);
+
+        // Create the mesh for this prototype
+        const protoGeometry = baseSphereGeometry.clone();
+        const vertices = protoGeometry.attributes.position.array;
+
+        // Apply offsets if available
+        if (prototypesData.offsets && prototypesData.offsets[i]) {
+            const protoOffsets = prototypesData.offsets[i];
+            for (let v = 0; v < vertices.length / 3; v++) {
+                if (v < protoOffsets.length) {
+                    vertices[v * 3] += protoOffsets[v][0];
+                    vertices[v * 3 + 1] += protoOffsets[v][1];
+                    vertices[v * 3 + 2] += protoOffsets[v][2];
+                }
+            }
+        }
+
+        // Update geometry and compute normals
+        protoGeometry.attributes.position.needsUpdate = true;
+        protoGeometry.computeVertexNormals();
+
+        // Create material and mesh
         const color = colors[i % colors.length];
-        const material = new THREE.MeshPhongMaterial({ color });
+        const material = new THREE.MeshPhongMaterial({
+            color,
+            wireframe: false,
+            side: THREE.DoubleSide
+        });
 
-        const sphere = new THREE.Mesh(sphereGeometry, material);
-        sphere.position.set(
-            (col - gridSize / 2) * spacing,
-            (row - gridSize / 2) * spacing,
-            0
-        );
+        const mesh = new THREE.Mesh(protoGeometry, material);
+        mesh.userData = { protoIndex: i };
+        scene.add(mesh);
 
-        // Add prototype number label
-        const canvas = document.createElement('canvas');
-        canvas.width = 128;
-        canvas.height = 128;
-        const ctx = canvas.getContext('2d');
-        ctx.fillStyle = 'white';
-        ctx.fillRect(0, 0, 128, 128);
-        ctx.fillStyle = 'black';
-        ctx.font = '80px Arial';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(i + 1, 64, 64);
+        // Store in our arrays
+        window.prototypeMeshes.push(mesh);
+        objects.prototypes.push(mesh); // For compatibility
 
-        const texture = new THREE.CanvasTexture(canvas);
-        const labelMaterial = new THREE.SpriteMaterial({ map: texture });
-        const sprite = new THREE.Sprite(labelMaterial);
-        sprite.scale.set(0.5, 0.5, 0.5);
-        sprite.position.set(0, 0, 0.3);
-
-        sphere.add(sprite);
-        sphere.userData = { protoIndex: i };
-
-        scenes.prototypes.add(sphere);
-        objects.prototypes.push(sphere);
+        // Initial render
+        renderer.render(scene, camera);
     }
 
-    // Position camera to view all prototypes
-    const cameraDistance = gridSize * spacing;
-    cameras.prototypes.position.set(0, 0, cameraDistance * 1.5);
-    cameras.prototypes.lookAt(0, 0, 0);
-    controls.prototypes.target.set(0, 0, 0);
+    // Setup animation
+    if (!window.simplifiedAnimationActive) {
+        window.simplifiedAnimationActive = true;
+        animateSimplified();
+    }
+}
+
+/**
+ * Simplified animation loop for prototype views
+ */
+function animateSimplified() {
+    requestAnimationFrame(animateSimplified);
+
+    // Only animate if we have renderers
+    if (!window.prototypeRenderers || window.prototypeRenderers.length === 0) {
+        return;
+    }
+
+    // Update each view
+    for (let i = 0; i < window.prototypeRenderers.length; i++) {
+        if (window.prototypeControls[i] && window.prototypeRenderers[i] &&
+            window.prototypeScenes[i] && window.prototypeCameras[i]) {
+            window.prototypeControls[i].update();
+            window.prototypeRenderers[i].render(
+                window.prototypeScenes[i],
+                window.prototypeCameras[i]
+            );
+        }
+    }
+}
+
+/**
+ * Add lighting to a prototype scene
+ */
+function addLightingToScene(scene) {
+    // Add ambient light
+    const ambientLight = new THREE.AmbientLight(0x404040);
+    scene.add(ambientLight);
+
+    // Add directional lights from multiple angles for good lighting
+    const directionalLight1 = new THREE.DirectionalLight(0xffffff, 0.5);
+    directionalLight1.position.set(1, 1, 1);
+    scene.add(directionalLight1);
+
+    const directionalLight2 = new THREE.DirectionalLight(0xffffff, 0.3);
+    directionalLight2.position.set(-1, -1, -1);
+    scene.add(directionalLight2);
+
+    const directionalLight3 = new THREE.DirectionalLight(0xffffff, 0.2);
+    directionalLight3.position.set(1, -1, 0);
+    scene.add(directionalLight3);
+}
+
+/**
+ * Animation loop for prototype views
+ */
+function animatePrototypes() {
+    requestAnimationFrame(animatePrototypes);
+
+    // Update controls and render each prototype view
+    for (let i = 0; i < renderers.prototypeRenderers.length; i++) {
+        if (controls.prototypeControls[i] && renderers.prototypeRenderers[i]) {
+            controls.prototypeControls[i].update();
+            renderers.prototypeRenderers[i].render(scenes.prototypeScenes[i], cameras.prototypeCameras[i]);
+        }
+    }
 }
