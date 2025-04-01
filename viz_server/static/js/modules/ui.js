@@ -108,6 +108,51 @@ function switchTab(tab) {
         elements.navMainMobile.classList.add('active');
         elements.mainView.classList.remove('hidden');
         elements.prototypesView.classList.add('hidden');
+
+        // Ensure the main renderer is properly preserved/restored
+        if (renderers.unified && renderers.unified.domElement) {
+            // Make sure it's still in the DOM
+            if (!renderers.unified.domElement.parentNode) {
+                elements.unifiedContainer.appendChild(renderers.unified.domElement);
+                console.log("Re-attached main renderer to DOM");
+            }
+
+            // If we've lost the WebGL context, try to recover
+            try {
+                // Force a render to check if context is alive
+                renderers.unified.render(scenes.unified, cameras.unified);
+            } catch (e) {
+                console.warn("Main renderer WebGL context may be lost, attempting recovery");
+                // If we get here, we might have lost the context - try to recover
+                const oldDomElement = renderers.unified.domElement;
+
+                // Create a new renderer with same settings
+                renderers.unified = new THREE.WebGLRenderer({
+                    antialias: true,
+                    powerPreference: 'high-performance',
+                    preserveDrawingBuffer: true
+                });
+                renderers.unified.setPixelRatio(window.devicePixelRatio);
+                renderers.unified.isPermanent = true;
+
+                // Replace the old DOM element
+                if (oldDomElement.parentNode) {
+                    oldDomElement.parentNode.replaceChild(renderers.unified.domElement, oldDomElement);
+                } else {
+                    elements.unifiedContainer.appendChild(renderers.unified.domElement);
+                }
+
+                // Recreate controls
+                controls.unified = new THREE.OrbitControls(cameras.unified, renderers.unified.domElement);
+
+                // Resize to match container
+                const width = elements.unifiedContainer.clientWidth;
+                const height = elements.unifiedContainer.clientHeight;
+                renderers.unified.setSize(width, height);
+
+                console.log("Main renderer recreated after context loss");
+            }
+        }
     } else {
         elements.navPrototypes.classList.add('active');
         elements.navPrototypesMobile.classList.add('active');

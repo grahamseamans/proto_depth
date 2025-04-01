@@ -6,13 +6,20 @@
  * Initialize Three.js renderers for all visualization panels
  */
 function initializeRenderers() {
-    // Unified scene for both point cloud and slots/shapes
+    // Unified scene for both point cloud and slots/shapes - initialize this FIRST for WebGL priority
     scenes.unified = new THREE.Scene();
     scenes.unified.background = new THREE.Color(0x15191E);
     cameras.unified = new THREE.PerspectiveCamera(75, 1, 0.1, 1000);
     cameras.unified.position.set(0, 0, 0.01); // kills controls if at origin for some reason
-    renderers.unified = new THREE.WebGLRenderer({ antialias: true });
+
+    // Special treatment for main renderer to ensure it gets priority
+    renderers.unified = new THREE.WebGLRenderer({
+        antialias: true,
+        powerPreference: 'high-performance', // Ask browser for priority
+        preserveDrawingBuffer: true // More stable across tab switches
+    });
     renderers.unified.setPixelRatio(window.devicePixelRatio);
+    renderers.unified.isPermanent = true; // Mark as special/permanent
     controls.unified = new THREE.OrbitControls(cameras.unified, renderers.unified.domElement);
     elements.unifiedContainer.appendChild(renderers.unified.domElement);
 
@@ -79,6 +86,21 @@ function resizeRenderers() {
         renderers.unified.setSize(unifiedWidth, unifiedHeight);
         cameras.unified.aspect = unifiedWidth / unifiedHeight;
         cameras.unified.updateProjectionMatrix();
+    }
+
+    // Prototype unified view (new layout)
+    if (renderers.prototypesUnified && elements.prototypeViewport) {
+        const viewport = elements.prototypeViewport;
+        if (viewport.offsetWidth > 0 && viewport.offsetHeight > 0) {
+            const viewportWidth = viewport.clientWidth;
+            const viewportHeight = viewport.clientHeight;
+            renderers.prototypesUnified.setSize(viewportWidth, viewportHeight);
+
+            if (cameras.prototypesUnified) {
+                cameras.prototypesUnified.aspect = viewportWidth / viewportHeight;
+                cameras.prototypesUnified.updateProjectionMatrix();
+            }
+        }
     }
 
     // Original prototypes renderer (for compatibility)

@@ -17,11 +17,13 @@ class DepthEncoder(nn.Module):
         self.device = device
 
         # ResNet backbone (remove final classification layer)
-        resnet = models.resnet18(weights=models.ResNet18_Weights.DEFAULT)
+        resnet = models.resnet50(
+            weights=models.ResNet50_Weights.DEFAULT
+        )  # Changed to ResNet50
         self.backbone = nn.Sequential(*list(resnet.children())[:-1])
 
         # Project to slots
-        backbone_dim = 512  # ResNet18's final feature dimension
+        backbone_dim = 2048  # ResNet50's final feature dimension
         # For each slot we output:
         # - scale (1)
         # - transforms for each prototype (num_prototypes * 6)
@@ -97,33 +99,6 @@ class DepthEncoder(nn.Module):
         # Old scales were just softplus, multiply by a factor for more visibility
         scale_multiplier = 5.0
         scaled_scales = scales * scale_multiplier
-
-        # Print debug info about scales and positions for the first batch
-        if B > 0:
-            print(f"\nDEBUG MODEL OUTPUT:")
-            print(
-                f"  Raw scales (before multiplier): Min={scales[0].min().item():.4f}, Max={scales[0].max().item():.4f}"
-            )
-            print(
-                f"  Final scales (after multiplier): Min={scaled_scales[0].min().item():.4f}, Max={scaled_scales[0].max().item():.4f}"
-            )
-
-            # Check position values
-            position_min = scene_scale_transforms[0, :, :, :3].min().item()
-            position_max = scene_scale_transforms[0, :, :, :3].max().item()
-            position_mean = scene_scale_transforms[0, :, :, :3].mean().item()
-            print(
-                f"  Position values: Min={position_min:.4f}, Max={position_max:.4f}, Mean={position_mean:.4f}"
-            )
-
-            # Check prototype weights
-            weight_max = prototype_weights[0].max().item()
-            weight_min = prototype_weights[0].min().item()
-            print(f"  Prototype weights: Min={weight_min:.4f}, Max={weight_max:.4f}")
-            print(
-                f"  Number of weights > 0.1: {(prototype_weights[0] > 0.1).sum().item()}"
-            )
-            print("==========================================\n")
 
         return (
             scaled_scales,

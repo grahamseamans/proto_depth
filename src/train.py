@@ -1,8 +1,5 @@
 import os
 
-# os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
-
-
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -13,6 +10,10 @@ import os
 from pathlib import Path
 from glob import glob
 from tqdm import tqdm
+import time  # For manual timing
+from torch.autograd import profiler  # For PyTorch profiling
+import os
+
 
 from .model import DepthEncoder
 from .mesh_utils import MeshTransformer
@@ -36,6 +37,13 @@ def train(
     w_laplacian=0.1,
     # Visualization options
     use_interactive_viz=True,
+    # Memory optimization parameters (new)
+    samples_per_slot=500,
+    min_distance=0.5,
+    global_weight=0.7,
+    slot_weight=0.2,
+    repulsion_weight=0.1,
+    **kwargs,  # For backward compatibility
 ):
     # Create output directories for visualizations
     os.makedirs("training_progress", exist_ok=True)
@@ -76,6 +84,22 @@ def train(
     # Optimizer - include both model parameters and prototype offsets
     optimizer = optim.Adam(model.parameters(), lr=lr)
 
+    # Print memory optimization settings
+    print(f"\nUsing memory-optimized settings:")
+    print(f"  Points sampled per slot: {samples_per_slot} (was 5000)")
+    print(f"  Min distance between slots: {min_distance}m")
+    print(
+        f"  Loss weights - Global: {global_weight}, Slot: {slot_weight}, Repulsion: {repulsion_weight}"
+    )
+
+    # Performance profiling settings
+    enable_profiling = True  # Set to False to disable profiling
+    profiling_warmup_batches = 2  # Skip initial batches for warmup
+    profiling_batches = 3  # Number of batches to profile
+    profiling_active = False
+    profiling_batch_count = 0
+    detailed_timing = {}  # For manual timing
+
     # Training loop
     global_batch = 0
     for epoch in tqdm(range(num_epochs), desc="Epochs", position=0):
@@ -93,35 +117,98 @@ def train(
         for batch_idx, (depth_img_3ch, points_list, original_depth) in enumerate(
             train_loader
         ):
+            # Check if we should start or stop profiling
+            if (
+                enable_profiling
+                and not profiling_active
+                and batch_idx >= profiling_warmup_batches
+            ):
+                profiling_active = True
+                profiling_batch_count = 0
+                print(f"\n\n{'=' * 40}")
+                print(
+                    f"Starting performance profiling for {profiling_batches} batches..."
+                )
+                print(f"{'=' * 40}\n")
+                # Start the PyTorch profiler
+                prof = profiler.profile(use_cuda=True, record_shapes=True)
+                prof.__enter__()
+
+                # Reset timing dictionary for manual timing
+                detailed_timing = {
+                    "data_transfer": [],
+                    "forward_pass": [],
+                    "mesh_transform": [],
+                    "chamfer_loss": [],
+                    "proto_regularization": [],
+                    "other_loss": [],
+                    "backward_pass": [],
+                    "optimizer_step": [],
+                    "total_batch": [],
+                }
+
+            # Start batch timer
+            batch_start = time.time()
+
             # Move to device
+            t0 = time.time()
             depth_img_3ch = depth_img_3ch.to(device)
             points_list = [p.to(device) for p in points_list]
             if original_depth is not None:
                 original_depth = original_depth.to(device)
+            t1 = time.time()
+            if profiling_active:
+                detailed_timing["data_transfer"].append(t1 - t0)
+
+            # Reset gradients
+            optimizer.zero_grad()
 
             # Forward pass through encoder
+            t0 = time.time()
             scales, transforms, prototype_weights, prototype_offsets = model(
                 depth_img_3ch
             )
+            t1 = time.time()
+            if profiling_active:
+                detailed_timing["forward_pass"].append(t1 - t0)
 
             # Transform meshes
+            t0 = time.time()
             transformed_meshes = mesh_transformer.transform_mesh(
                 scales, transforms, prototype_weights, prototype_offsets
             )
+            t1 = time.time()
+            if profiling_active:
+                detailed_timing["mesh_transform"].append(t1 - t0)
 
-            # Compute chamfer loss with hybrid approach
+            # Compute chamfer loss with memory-optimized hybrid approach
+            t0 = time.time()
             chamfer_loss, global_chamfer_loss, per_slot_chamfer_loss = (
                 mesh_transformer.compute_hybrid_chamfer_loss(
-                    transformed_meshes, points_list
+                    transformed_meshes,
+                    points_list,
+                    global_weight=global_weight,
+                    slot_weight=slot_weight,
+                    repulsion_weight=repulsion_weight,
+                    samples_per_slot=samples_per_slot,
+                    min_distance=min_distance,
                 )
             )
+            t1 = time.time()
+            if profiling_active:
+                detailed_timing["chamfer_loss"].append(t1 - t0)
 
             # Compute prototype regularization losses
+            t0 = time.time()
             proto_edge_loss, proto_normal_loss, proto_laplacian_loss = (
                 mesh_transformer.compute_prototype_regularization(prototype_offsets)
             )
+            t1 = time.time()
+            if profiling_active:
+                detailed_timing["proto_regularization"].append(t1 - t0)
 
             # Get regularization for final meshes (zeros now)
+            t0 = time.time()
             edge_loss, normal_loss, laplacian_loss = (
                 mesh_transformer.compute_regularization_losses(transformed_meshes)
             )
@@ -134,11 +221,60 @@ def train(
                 + w_normal * proto_normal_loss
                 + w_laplacian * proto_laplacian_loss
             )
+            t1 = time.time()
+            if profiling_active:
+                detailed_timing["other_loss"].append(t1 - t0)
 
-            # Backward pass
-            optimizer.zero_grad()
+            # Standard backward pass
+            t0 = time.time()
             loss.backward()
+            t1 = time.time()
+            if profiling_active:
+                detailed_timing["backward_pass"].append(t1 - t0)
+
+            t0 = time.time()
             optimizer.step()
+            t1 = time.time()
+            if profiling_active:
+                detailed_timing["optimizer_step"].append(t1 - t0)
+
+            # End batch timer
+            batch_end = time.time()
+            if profiling_active:
+                detailed_timing["total_batch"].append(batch_end - batch_start)
+                profiling_batch_count += 1
+
+                # If we've profiled enough batches, stop profiling and print results
+                if profiling_batch_count >= profiling_batches:
+                    # Print manual timing results
+                    print(f"\n{'=' * 60}")
+                    print(f"PERFORMANCE PROFILING RESULTS (Manual Timing)")
+                    print(f"{'=' * 60}")
+                    print(f"Average times over {profiling_batches} batches:")
+                    for key, times in detailed_timing.items():
+                        avg_time = sum(times) / len(times)
+                        percent = (
+                            100
+                            * avg_time
+                            / sum(detailed_timing["total_batch"])
+                            / len(detailed_timing["total_batch"])
+                        )
+                        print(f"  {key.ljust(20)}: {avg_time:.4f}s ({percent:.1f}%)")
+
+                    # End and print PyTorch profiler results
+                    prof.__exit__(None, None, None)
+                    print(f"\n{'=' * 60}")
+                    print(f"PERFORMANCE PROFILING RESULTS (PyTorch Profiler)")
+                    print(f"{'=' * 60}")
+                    print(
+                        prof.key_averages().table(
+                            sort_by="cuda_time_total", row_limit=20
+                        )
+                    )
+                    print(f"\n{'=' * 60}\n")
+
+                    profiling_active = False
+                    enable_profiling = False  # Disable future profiling sessions
 
             # Update metrics
             total_loss += loss.item()

@@ -115,16 +115,29 @@ class MeshTransformer(nn.Module):
         return total_loss
 
     def compute_hybrid_chamfer_loss(
-        self, meshes, target_pcls, global_weight=0.7, slot_weight=0.3
+        self,
+        meshes,
+        target_pcls,
+        global_weight=0.7,
+        slot_weight=0.3,
+        repulsion_weight=0.2,
+        samples_per_slot=500,
+        min_distance=0.5,
     ):
         """
-        Compute a hybrid Chamfer loss that combines global and per-slot components.
+        Memory-efficient implementation of hybrid loss with three components:
+        1. Global chamfer: Target points → All predicted mesh points
+        2. Per-slot proximity: Each slot's points → Target points
+        3. Centroid repulsion: Preventing slots from overlapping
 
         Args:
             meshes: List of B Meshes objects, each containing num_slots meshes
             target_pcls: List of B Tensor objects, each of shape [N_i, 3] - target point clouds
             global_weight: Weight for the global component
             slot_weight: Weight for the per-slot component
+            repulsion_weight: Weight for the centroid repulsion component
+            samples_per_slot: Number of points to sample per slot (much lower than before)
+            min_distance: Minimum desired distance between centroids (in meters)
         Returns:
             total_loss: Combined loss scalar tensor
             global_loss: Global component scalar tensor
@@ -133,74 +146,94 @@ class MeshTransformer(nn.Module):
         B = len(meshes)
         global_loss = 0
         per_slot_loss = 0
+        repulsion_loss = 0
 
         for b in range(B):
-            # Sample points from all meshes in this batch
+            # Sample fewer points from all meshes in this batch
             pred_pcl_per_slot = pytorch3d.ops.sample_points_from_meshes(
-                meshes[b], num_samples=5000
-            )  # [num_slots, 5000, 3]
+                meshes[b], num_samples=samples_per_slot
+            )  # [num_slots, samples_per_slot, 3]
             num_slots = pred_pcl_per_slot.shape[0]
-
-            # For global loss (original implementation)
-            pred_pcl_flat = pred_pcl_per_slot.reshape(-1, 3)  # [num_slots*5000, 3]
             tgt_pcl = target_pcls[b]  # [N, 3]
 
-            # Global loss: for each target point, find distance to closest predicted point
-            distances = torch.cdist(tgt_pcl, pred_pcl_flat, p=2)  # [N, num_slots*5000]
-            min_distances, _ = torch.min(distances, dim=1)  # [N]
-            batch_global_loss = torch.mean(min_distances)
-            global_loss += batch_global_loss
+            # 1. Global loss: Target points → All predicted points
+            # ---------------------------------------------------
+            # Flatten all slot points
+            pred_pcl_flat = pred_pcl_per_slot.reshape(
+                -1, 3
+            )  # [num_slots*samples_per_slot, 3]
 
-            # Per-slot loss: for each slot, find its best contribution
+            # Use PyTorch3D's optimized implementation (one-directional)
+            global_dist, _ = pytorch3d.loss.chamfer_distance(
+                tgt_pcl.unsqueeze(0),  # [1, N, 3]
+                pred_pcl_flat.unsqueeze(0),  # [1, num_slots*samples_per_slot, 3]
+                point_reduction="mean",
+                single_directional=True,  # Target → Prediction only
+            )
+            global_loss += global_dist
+
+            # 2. Per-slot proximity: Slot points → Target points
+            # -------------------------------------------------
             slot_losses = []
             for s in range(num_slots):
-                slot_pcl = pred_pcl_per_slot[s]  # [5000, 3]
+                slot_pcl = pred_pcl_per_slot[s]  # [samples_per_slot, 3]
 
-                # For each target point, find distance to closest predicted point in this slot
-                slot_distances = torch.cdist(tgt_pcl, slot_pcl, p=2)  # [N, 5000]
-                slot_min_distances, _ = torch.min(slot_distances, dim=1)  # [N]
-
-                # Get average distance for points this slot is closest to
-                # We use a soft minimum operation to avoid winner-takes-all problem
-                # First, get weights based on how close each target point is to this slot
-                # compared to other slots
-                all_slot_min_distances = []
-                for other_s in range(num_slots):
-                    other_slot_pcl = pred_pcl_per_slot[other_s]  # [5000, 3]
-                    other_distances = torch.cdist(
-                        tgt_pcl, other_slot_pcl, p=2
-                    )  # [N, 5000]
-                    other_min_distances, _ = torch.min(other_distances, dim=1)  # [N]
-                    all_slot_min_distances.append(other_min_distances)
-
-                all_distances = torch.stack(
-                    all_slot_min_distances, dim=1
-                )  # [N, num_slots]
-
-                # Compute soft weights - higher weight when this slot is closest
-                # temperature controls how "hard" the assignment is
-                temperature = 0.1
-                weights = torch.softmax(-all_distances / temperature, dim=1)[
-                    :, s
-                ]  # [N]
-
-                # Weighted average of distances - focuses on points this slot is responsible for
-                weighted_distances = weights * slot_min_distances
-                slot_loss = weighted_distances.sum() / (
-                    weights.sum() + 1e-8
-                )  # Avoid div by 0
-                slot_losses.append(slot_loss)
+                # One-directional: Slot → Target
+                slot_dist, _ = pytorch3d.loss.chamfer_distance(
+                    slot_pcl.unsqueeze(0),  # [1, samples_per_slot, 3]
+                    tgt_pcl.unsqueeze(0),  # [1, N, 3]
+                    point_reduction="mean",
+                    single_directional=True,  # Slot → Target
+                )
+                slot_losses.append(slot_dist)
 
             # Average the per-slot losses
             batch_slot_loss = torch.mean(torch.stack(slot_losses))
             per_slot_loss += batch_slot_loss
 
-        # Combine with weights
+            # 3. Centroid repulsion: Prevent slots from overlapping
+            # ---------------------------------------------------
+            # Get vertices for each slot in this batch
+            verts_list = meshes[
+                b
+            ].verts_list()  # List of num_slots tensors of shape [V, 3]
+
+            # Compute centroid for each slot
+            centroids = torch.stack(
+                [verts.mean(dim=0) for verts in verts_list]
+            )  # [num_slots, 3]
+
+            # Compute pairwise distances between centroids
+            distances = torch.cdist(centroids, centroids, p=2)  # [num_slots, num_slots]
+
+            # Create mask to ignore self-distances
+            mask = 1.0 - torch.eye(num_slots, device=distances.device)
+
+            # Apply smooth thresholding function that creates repulsion when closer than min_distance
+            distance_diff = min_distance - distances
+            falloff_rate = 5.0  # Controls how quickly repulsion falls off
+            repulsion = torch.exp(falloff_rate * torch.clamp(distance_diff, min=0.0))
+            # Zero out self-repulsion
+            repulsion = repulsion * mask
+
+            # Sum all pairwise repulsions and normalize
+            if num_slots > 1:  # Avoid division by zero if only one slot
+                batch_repulsion_loss = repulsion.sum() / (num_slots * (num_slots - 1))
+                repulsion_loss += batch_repulsion_loss
+
+        # Average across batch
         global_loss = global_loss / B
         per_slot_loss = per_slot_loss / B
-        total_loss = global_weight * global_loss + slot_weight * per_slot_loss
+        repulsion_loss = repulsion_loss / B
 
-        return total_loss, global_loss, per_slot_loss  # Return components for logging
+        # Combine all components with weights
+        total_loss = (
+            global_weight * global_loss
+            + slot_weight * per_slot_loss
+            + repulsion_weight * repulsion_loss
+        )
+
+        return total_loss, global_loss, per_slot_loss
 
     def compute_prototype_regularization(self, prototype_offsets):
         """

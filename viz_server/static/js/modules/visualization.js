@@ -174,42 +174,30 @@ function renderSlots(slotsData) {
 }
 
 /**
- * Render prototype visualizations in individual 3D views - simplified version
+ * Render all prototypes in a single unified 3D scene with navigation controls
  */
 function renderPrototypes(prototypesData) {
-    console.log("Rendering prototypes with data:", prototypesData);
+    console.log("Rendering prototypes with unified approach:", prototypesData);
 
-    // Initialize or clear global arrays - avoid relying on existing state
-    window.prototypeScenes = window.prototypeScenes || [];
-    window.prototypeCameras = window.prototypeCameras || [];
-    window.prototypeControls = window.prototypeControls || [];
-    window.prototypeRenderers = window.prototypeRenderers || [];
-    window.prototypeMeshes = window.prototypeMeshes || [];
+    // Access new DOM elements
+    const prototypeNavigation = document.getElementById('prototype-navigation');
+    const prototypeViewport = document.getElementById('prototype-viewport');
 
-    // Clear DOM elements
-    if (elements.prototypesGrid) {
-        elements.prototypesGrid.innerHTML = "";
-    } else {
-        console.error("Prototype grid element not found");
+    if (!prototypeNavigation || !prototypeViewport) {
+        console.error("Prototype navigation or viewport elements not found");
         return;
     }
 
-    // Clean up existing renderers and their DOM elements
-    window.prototypeRenderers.forEach(renderer => {
-        if (renderer && renderer.domElement && renderer.domElement.parentNode) {
-            renderer.domElement.parentNode.removeChild(renderer.domElement);
-            renderer.dispose();
-        }
-    });
+    // Store reference to navigation element for later use
+    elements.prototypeNavigation = prototypeNavigation;
 
-    // Clear arrays
-    window.prototypeScenes = [];
-    window.prototypeCameras = [];
-    window.prototypeControls = [];
-    window.prototypeRenderers = [];
-    window.prototypeMeshes = [];
+    // Clear navigation container
+    prototypeNavigation.innerHTML = "";
 
-    // Also clear existing prototypes in the original objects array
+    // Clear viewport container
+    prototypeViewport.innerHTML = "";
+
+    // Clear existing prototypes from the array and scene
     if (objects.prototypes) {
         while (objects.prototypes.length > 0) {
             const prototype = objects.prototypes.pop();
@@ -218,87 +206,114 @@ function renderPrototypes(prototypesData) {
             }
         }
     } else {
-        // If objects.prototypes doesn't exist, create it
         objects.prototypes = [];
     }
 
     // Check if we have valid data
     if (!prototypesData || !prototypesData.offsets || prototypesData.offsets.length === 0) {
         console.warn('No prototype data available');
+        prototypeViewport.innerHTML = '<div class="flex items-center justify-center h-full">No prototype data available</div>';
         return;
     }
 
     const numPrototypes = prototypesData.num_prototypes;
-    console.log(`Creating ${numPrototypes} prototype views`);
+    console.log(`Creating ${numPrototypes} prototypes in unified scene`);
+
+    // Create a new scene specifically for prototypes
+    if (!scenes.prototypesUnified) {
+        scenes.prototypesUnified = new THREE.Scene();
+        scenes.prototypesUnified.background = new THREE.Color(0x15191E);
+
+        // Add lighting to the scene
+        const ambientLight = new THREE.AmbientLight(0x404040);
+        scenes.prototypesUnified.add(ambientLight);
+
+        const directionalLight1 = new THREE.DirectionalLight(0xffffff, 0.5);
+        directionalLight1.position.set(1, 1, 1);
+        scenes.prototypesUnified.add(directionalLight1);
+
+        const directionalLight2 = new THREE.DirectionalLight(0xffffff, 0.3);
+        directionalLight2.position.set(-1, -1, -1);
+        scenes.prototypesUnified.add(directionalLight2);
+
+        // Add grid helper for better spatial understanding
+        const gridHelper = new THREE.GridHelper(10, 10, 0x888888, 0x444444);
+        scenes.prototypesUnified.add(gridHelper);
+
+        // Add axes helper
+        const axesHelper = new THREE.AxesHelper(1);
+        scenes.prototypesUnified.add(axesHelper);
+    } else {
+        // Clear existing objects except lights and helpers
+        const toRemove = [];
+        scenes.prototypesUnified.traverse(object => {
+            if (object.isMesh) {
+                toRemove.push(object);
+            }
+        });
+
+        toRemove.forEach(object => {
+            scenes.prototypesUnified.remove(object);
+        });
+    }
+
+    // Create camera if it doesn't exist
+    if (!cameras.prototypesUnified) {
+        cameras.prototypesUnified = new THREE.PerspectiveCamera(75, 1, 0.1, 100);
+        cameras.prototypesUnified.position.set(0, 0, 5);
+    }
+
+    // Create renderer if it doesn't exist
+    if (!renderers.prototypesUnified) {
+        renderers.prototypesUnified = new THREE.WebGLRenderer({ antialias: true });
+        renderers.prototypesUnified.setPixelRatio(window.devicePixelRatio);
+    }
+
+    // Create orbit controls if they don't exist
+    if (!controls.prototypesUnified) {
+        controls.prototypesUnified = new THREE.OrbitControls(cameras.prototypesUnified, renderers.prototypesUnified.domElement);
+        controls.prototypesUnified.enableDamping = true;
+        controls.prototypesUnified.dampingFactor = 0.25;
+    }
+
+    // Attach renderer to the viewport
+    prototypeViewport.appendChild(renderers.prototypesUnified.domElement);
+
+    // Make renderer canvas fill parent container with 100% width and height
+    renderers.prototypesUnified.domElement.style.display = 'block';
+    renderers.prototypesUnified.domElement.style.width = '100%';
+    renderers.prototypesUnified.domElement.style.height = '100%';
+
+    // Update renderer size to match container dimensions
+    const rect = prototypeViewport.getBoundingClientRect();
+    renderers.prototypesUnified.setSize(rect.width, rect.height);
+
+    // Update camera aspect ratio
+    cameras.prototypesUnified.aspect = rect.width / rect.height;
+    cameras.prototypesUnified.updateProjectionMatrix();
+
+    // Calculate grid layout dimensions based on number of prototypes
+    const gridSize = Math.ceil(Math.sqrt(numPrototypes));
+    const spacing = 1.0; // Space between prototypes
 
     // Base geometry for all prototypes
     const baseSphereGeometry = new THREE.IcosahedronGeometry(0.2, 4);
 
-    // Create a grid of prototype views
+    // Create navigation UI
+    createPrototypeNavigationUI(numPrototypes, gridSize, spacing);
+
+    // Create prototypes in a grid layout
     for (let i = 0; i < numPrototypes; i++) {
-        // Create container elements
-        const container = document.createElement('div');
-        container.className = 'card bg-base-100 shadow-xl';
-        elements.prototypesGrid.appendChild(container);
+        // Calculate grid position
+        const row = Math.floor(i / gridSize);
+        const col = i % gridSize;
 
-        const cardBody = document.createElement('div');
-        cardBody.className = 'card-body p-2';
-        container.appendChild(cardBody);
+        // Calculate 3D position in a grid
+        const x = (col - gridSize / 2) * spacing;
+        const y = (gridSize / 2 - row) * spacing; // Invert Y to match standard grid layout
+        const z = 0;
 
-        const title = document.createElement('h3');
-        title.className = 'card-title text-sm justify-center';
-        title.textContent = `Prototype ${i + 1}`;
-        cardBody.appendChild(title);
-
-        // Create 3D view container with proper square aspect ratio
-        const viewContainer = document.createElement('div');
-        viewContainer.className = 'prototype-view'; // Use our new CSS class that ensures square aspect
-        cardBody.appendChild(viewContainer);
-
-        // Create renderer container inside the square container
-        const rendererContainer = document.createElement('div');
-        rendererContainer.className = 'prototype-renderer';
-        viewContainer.appendChild(rendererContainer);
-
-        // Create the THREE.js components for this view
-        const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x15191E);
-        window.prototypeScenes.push(scene);
-
-        const camera = new THREE.PerspectiveCamera(75, 1, 0.1, 1000);
-        camera.position.set(0, 0, 1.2);
-        window.prototypeCameras.push(camera);
-
-        const renderer = new THREE.WebGLRenderer({ antialias: true });
-        renderer.setPixelRatio(window.devicePixelRatio);
-
-        // Use rendererContainer instead of viewContainer
-        renderer.setSize(rendererContainer.clientWidth || 200, rendererContainer.clientHeight || 200);
-        rendererContainer.appendChild(renderer.domElement);
-        window.prototypeRenderers.push(renderer);
-
-        const controls = new THREE.OrbitControls(camera, renderer.domElement);
-        controls.enableDamping = true;
-        controls.dampingFactor = 0.25;
-        window.prototypeControls.push(controls);
-
-        // Add lighting
-        const ambientLight = new THREE.AmbientLight(0x404040);
-        scene.add(ambientLight);
-
-        const directionalLight1 = new THREE.DirectionalLight(0xffffff, 0.5);
-        directionalLight1.position.set(1, 1, 1);
-        scene.add(directionalLight1);
-
-        const directionalLight2 = new THREE.DirectionalLight(0xffffff, 0.3);
-        directionalLight2.position.set(-1, -1, -1);
-        scene.add(directionalLight2);
-
-        // Add axes helper
-        const axes = new THREE.AxesHelper(0.3);
-        scene.add(axes);
-
-        // Create the mesh for this prototype
+        // Create prototype geometry
         const protoGeometry = baseSphereGeometry.clone();
         const vertices = protoGeometry.attributes.position.array;
 
@@ -327,66 +342,186 @@ function renderPrototypes(prototypesData) {
         });
 
         const mesh = new THREE.Mesh(protoGeometry, material);
-        mesh.userData = { protoIndex: i };
-        scene.add(mesh);
+        mesh.position.set(x, y, z);
+        mesh.userData = {
+            protoIndex: i,
+            gridPosition: { row, col }
+        };
 
-        // Store in our arrays
-        window.prototypeMeshes.push(mesh);
-        objects.prototypes.push(mesh); // For compatibility
+        // Create label for the prototype
+        addPrototypeLabel(mesh, `P${i + 1}`, x, y, z);
 
-        // Initial render
-        renderer.render(scene, camera);
+        // Add to scene
+        scenes.prototypesUnified.add(mesh);
+        objects.prototypes.push(mesh);
     }
 
-    // Setup animation
-    if (!window.simplifiedAnimationActive) {
-        window.simplifiedAnimationActive = true;
-        animateSimplified();
+    // Set up animation loop if not already active
+    if (!window.unifiedAnimationActive) {
+        window.unifiedAnimationActive = true;
+        animateUnifiedScene();
     }
 
     // Add resize handler if not already added
-    if (!window.prototypeResizeHandlerAdded) {
+    if (!window.unifiedResizeHandlerAdded) {
         window.addEventListener('resize', function () {
-            // Update renderer sizes on window resize
-            for (let i = 0; i < window.prototypeRenderers.length; i++) {
-                const renderer = window.prototypeRenderers[i];
-                const camera = window.prototypeCameras[i];
-                if (renderer && renderer.domElement && renderer.domElement.parentElement) {
-                    const parent = renderer.domElement.parentElement;
-                    renderer.setSize(parent.clientWidth || 200, parent.clientHeight || 200);
-                    // Maintain 1:1 aspect ratio
-                    if (camera) {
-                        camera.aspect = 1;
-                        camera.updateProjectionMatrix();
-                    }
+            if (renderers.prototypesUnified && renderers.prototypesUnified.domElement) {
+                const parent = renderers.prototypesUnified.domElement.parentElement;
+                if (parent) {
+                    const width = parent.clientWidth;
+                    const height = parent.clientHeight;
+                    renderers.prototypesUnified.setSize(width, height);
+                    cameras.prototypesUnified.aspect = width / height;
+                    cameras.prototypesUnified.updateProjectionMatrix();
                 }
             }
         });
-        window.prototypeResizeHandlerAdded = true;
+        window.unifiedResizeHandlerAdded = true;
+    }
+
+    // Initial render
+    renderers.prototypesUnified.render(scenes.prototypesUnified, cameras.prototypesUnified);
+}
+
+/**
+ * Create a simple prototype label using a small sprite
+ */
+function addPrototypeLabel(prototype, text, x, y, z) {
+    // Create a canvas for the label
+    const canvas = document.createElement('canvas');
+    const size = 128;
+    canvas.width = size;
+    canvas.height = size;
+    const context = canvas.getContext('2d');
+
+    // Draw background
+    context.fillStyle = 'rgba(0, 0, 0, 0.7)';
+    context.fillRect(0, 0, size, size);
+
+    // Draw text
+    context.font = '40px Arial';
+    context.fillStyle = 'white';
+    context.textAlign = 'center';
+    context.textBaseline = 'middle';
+    context.fillText(text, size / 2, size / 2);
+
+    // Create texture from canvas
+    const texture = new THREE.CanvasTexture(canvas);
+
+    // Create sprite material and sprite
+    const spriteMaterial = new THREE.SpriteMaterial({
+        map: texture,
+        transparent: true,
+        opacity: 0.8
+    });
+
+    const sprite = new THREE.Sprite(spriteMaterial);
+    sprite.scale.set(0.5, 0.5, 1);
+    sprite.position.set(0, 0.4, 0); // Position above the prototype
+
+    // Add sprite to prototype
+    prototype.add(sprite);
+}
+
+/**
+ * Create navigation UI for prototypes
+ */
+function createPrototypeNavigationUI(numPrototypes, gridSize, spacing) {
+    // Navigation container is now created in renderPrototypes
+    if (!elements.prototypeNavigation) {
+        console.error("Navigation container not found");
+        return;
+    }
+
+    // Clear existing content
+    elements.prototypeNavigation.innerHTML = '';
+
+    // Add overview button - keep Daisy classes but without sizing
+    const overviewBtn = document.createElement('button');
+    overviewBtn.textContent = 'Overview';
+    overviewBtn.className = 'btn btn-sm btn-primary';
+    overviewBtn.style.marginBottom = '10px';
+    overviewBtn.style.width = '100%';
+    overviewBtn.onclick = () => {
+        // Reset camera to show all prototypes
+        cameras.prototypesUnified.position.set(0, 0, gridSize * spacing * 1.5);
+        controls.prototypesUnified.target.set(0, 0, 0);
+        controls.prototypesUnified.update();
+
+        // Remove highlight from all buttons
+        const buttons = elements.prototypeNavigation.querySelectorAll('button');
+        for (let i = 1; i < buttons.length; i++) {
+            buttons[i].classList.remove('ring');
+        }
+    };
+    elements.prototypeNavigation.appendChild(overviewBtn);
+
+    // Add simple buttons for each prototype directly in the cell
+    for (let i = 0; i < numPrototypes; i++) {
+        const button = document.createElement('button');
+        button.textContent = `P${i + 1}`;
+        button.className = 'btn btn-sm';
+        button.style.backgroundColor = `#${colors[i % colors.length].toString(16).padStart(6, '0')}`;
+        button.style.color = 'white';
+        button.style.marginBottom = '5px';
+        button.style.width = '100%';
+        button.style.textAlign = 'left';
+
+        // Simple click handler
+        button.onclick = () => {
+            focusOnPrototype(i, gridSize, spacing);
+        };
+
+        elements.prototypeNavigation.appendChild(button);
+
+        // Add a line break for cleaner layout
+        if (i < numPrototypes - 1) {
+            elements.prototypeNavigation.appendChild(document.createElement('br'));
+        }
     }
 }
 
 /**
- * Simplified animation loop for prototype views
+ * Focus camera on a specific prototype
  */
-function animateSimplified() {
-    requestAnimationFrame(animateSimplified);
+function focusOnPrototype(index, gridSize, spacing) {
+    const prototype = objects.prototypes[index];
+    if (!prototype) return;
 
-    // Only animate if we have renderers
-    if (!window.prototypeRenderers || window.prototypeRenderers.length === 0) {
-        return;
+    // Highlight the selected button - buttons are now direct children of navigation container
+    // The first button (index 0) is 'Overview', so prototype buttons start at index 1
+    const buttons = elements.prototypeNavigation.querySelectorAll('button');
+    for (let i = 0; i < buttons.length; i++) {
+        if (i === index + 1) { // +1 to account for Overview button
+            buttons[i].classList.add('ring');
+        } else {
+            buttons[i].classList.remove('ring');
+        }
     }
 
-    // Update each view
-    for (let i = 0; i < window.prototypeRenderers.length; i++) {
-        if (window.prototypeControls[i] && window.prototypeRenderers[i] &&
-            window.prototypeScenes[i] && window.prototypeCameras[i]) {
-            window.prototypeControls[i].update();
-            window.prototypeRenderers[i].render(
-                window.prototypeScenes[i],
-                window.prototypeCameras[i]
-            );
-        }
+    // Get prototype position
+    const position = prototype.position.clone();
+
+    // Animate camera to look at this prototype
+    cameras.prototypesUnified.position.set(position.x, position.y, position.z + 1.2);
+    controls.prototypesUnified.target.copy(position);
+    controls.prototypesUnified.update();
+}
+
+/**
+ * Animation loop for unified scene
+ */
+function animateUnifiedScene() {
+    requestAnimationFrame(animateUnifiedScene);
+
+    // Update controls
+    if (controls.prototypesUnified) {
+        controls.prototypesUnified.update();
+    }
+
+    // Render scene
+    if (renderers.prototypesUnified && scenes.prototypesUnified && cameras.prototypesUnified) {
+        renderers.prototypesUnified.render(scenes.prototypesUnified, cameras.prototypesUnified);
     }
 }
 

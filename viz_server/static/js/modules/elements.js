@@ -15,7 +15,9 @@ const elements = {
     mainView: document.getElementById('main-view'),
     prototypesView: document.getElementById('prototypes-view'),
     unifiedContainer: document.getElementById('unified-container'),
-    prototypesGrid: document.getElementById('prototypes-grid'),
+    prototypesGrid: document.getElementById('prototypes-grid'), // Legacy reference
+    prototypeNavigation: document.getElementById('prototype-navigation'),
+    prototypeViewport: document.getElementById('prototype-viewport'),
     prototypeWeightsContainer: document.getElementById('prototype-weights-container'),
     slotToggles: document.getElementById('slot-toggles'),
     weightChart: document.getElementById('weight-chart'),

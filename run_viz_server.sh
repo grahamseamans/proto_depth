@@ -6,7 +6,7 @@
 
 # Default values
 HOST="0.0.0.0"
-PORT=5000
+PORT=5000  # Changed from 5000 to avoid conflict
 DEBUG=true
 
 # Check if viz_server directory exists
@@ -27,4 +27,4 @@ echo "Starting visualization server on http://localhost:$PORT"
 echo "Live reloading enabled (ignoring changes in data directory)"
 
 # Start Flask with debug mode and exclude data directory from triggering reloads
-python -m flask run --host=$HOST --port=$PORT --debug 
+python -m flask run --host=$HOST --port=$PORT --debug
