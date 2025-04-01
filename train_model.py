@@ -8,11 +8,11 @@ if __name__ == "__main__":
     # Training configuration
     config = {
         "data_path": "data/SYNTHIA-SF/SEQ1/DepthLeft",
-        "batch_size": 4,  # Smaller batch size for testing
-        "num_epochs": 200,  # Just 2 epochs for testing
+        "batch_size": 5,  # Smaller batch size for testing
+        "num_epochs": 1000,  # Just 2 epochs for testing
         "lr": 1e-4,
-        "num_prototypes": 5,  # Fewer prototypes for testing
-        "num_slots": 3,  # Fewer slots for testing
+        "num_prototypes": 4,  # Fewer prototypes for testing
+        "num_slots": 4,  # Fewer slots for testing
         "viz_interval": 5,  # Visualize more frequently
         "num_final_samples": 8,  # Generate 8 side-by-side visualizations at the end
         # Regularization weights
