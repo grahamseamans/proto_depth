@@ -11,41 +11,86 @@ function setDataHandlers(loadRunFn, loadEpochFn) {
 }
 
 /**
- * Set up event listeners for UI interactions
+ * Initialize UI event listeners
  */
-function setupEventListeners() {
+function initUI() {
     // Run selector
-    elements.runSelector.addEventListener('change', async () => {
-        const runId = elements.runSelector.value;
+    elements.runSelector.addEventListener('change', async (e) => {
+        const runId = e.target.value;
         if (runId) {
-            showLoading(true);
-            await _loadRun(runId);
-            showLoading(false);
+            await loadRun(runId);
         }
     });
 
     // Epoch slider
-    elements.epochSlider.addEventListener('input', async () => {
-        const epochIndex = parseInt(elements.epochSlider.value);
-        if (epochIndex !== state.currentEpochIndex) {
+    elements.epochSlider.addEventListener('input', async (e) => {
+        const epochIndex = parseInt(e.target.value);
+        if (state.epochs && epochIndex >= 0 && epochIndex < state.epochs.length) {
             state.currentEpochIndex = epochIndex;
-            showLoading(true);
-            await _loadEpoch(state.epochs[epochIndex]);
-            showLoading(false);
+            await loadEpoch(state.epochs[epochIndex]);
         }
     });
 
     // Reset view button
-    elements.resetViewBtn.addEventListener('click', resetAllViews);
+    elements.resetViewBtn.addEventListener('click', () => {
+        resetAllViews();
+    });
 
-    // Tab navigation
+    // Navigation tabs
     elements.navMain.addEventListener('click', () => switchTab('main'));
     elements.navPrototypes.addEventListener('click', () => switchTab('prototypes'));
     elements.navMainMobile.addEventListener('click', () => switchTab('main'));
     elements.navPrototypesMobile.addEventListener('click', () => switchTab('prototypes'));
 
-    // Window resize handler
-    window.addEventListener('resize', resizeRenderers);
+    // Toggle point cloud visibility
+    elements.togglePointCloud.addEventListener('change', (e) => {
+        if (objects.pointCloud) {
+            objects.pointCloud.visible = e.target.checked;
+        }
+    });
+
+    // Show depth image button
+    elements.showDepthImage.addEventListener('click', () => {
+        showDepthImageModal();
+    });
+
+    // Close depth image modal
+    elements.closeDepthModal.addEventListener('click', () => {
+        hideDepthImageModal();
+    });
+
+    // Window resize listener
+    window.addEventListener('resize', () => {
+        resizeRenderers();
+    });
+}
+
+/**
+ * Show the depth image in a modal
+ */
+function showDepthImageModal() {
+    if (state.currentRun && state.currentEpoch && state.currentBatch) {
+        const runId = state.currentRun;
+        const epochId = state.currentEpoch.id;
+        const batchId = state.currentBatch;
+
+        if (state.batchData && state.batchData.has_depth_image) {
+            const imgUrl = `/api/run/${runId}/epoch/${epochId}/batch/${batchId}/depth_img.png`;
+            elements.modalDepthContainer.innerHTML = `<img src="${imgUrl}" alt="Depth Image" style="max-width: 100%;">`;
+        } else {
+            elements.modalDepthContainer.innerHTML = '<div class="text-center p-4">No depth image available</div>';
+        }
+    }
+
+    // Show the modal
+    elements.depthImageModal.classList.add('modal-open');
+}
+
+/**
+ * Hide the depth image modal
+ */
+function hideDepthImageModal() {
+    elements.depthImageModal.classList.remove('modal-open');
 }
 
 /**

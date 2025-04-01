@@ -12,6 +12,7 @@ const state = {
     currentEpochIndex: 0,
     batchData: null,
     slotVisibility: {},
+    pointCloudBounds: null, // Store point cloud bounds for depth image alignment
 };
 
 // Object references
@@ -19,30 +20,27 @@ const objects = {
     pointCloud: null,
     slots: [],
     prototypes: [],
+    depthImagePlane: null, // Reference to the depth image plane in 3D space
 };
 
 // Three.js components
 const renderers = {
-    pointCloud: null,
-    scene: null,
+    unified: null, // Single renderer for the integrated view
     prototypes: null,
 };
 
 const scenes = {
-    pointCloud: null,
-    scene: null,
+    unified: null, // Single scene containing both point cloud and slots
     prototypes: null,
 };
 
 const cameras = {
-    pointCloud: null,
-    scene: null,
+    unified: null, // Single camera for the integrated view
     prototypes: null,
 };
 
 const controls = {
-    pointCloud: null,
-    scene: null,
+    unified: null, // Single controls for the integrated view
     prototypes: null,
 };
 

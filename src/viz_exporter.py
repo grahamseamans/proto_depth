@@ -109,11 +109,6 @@ class VizExporter:
             # Extract point cloud (from first item in batch)
             point_cloud = points_list[0].detach().cpu().numpy()
 
-            # Subsample for more efficient visualization if needed
-            if len(point_cloud) > 5000:
-                indices = np.random.choice(len(point_cloud), 5000, replace=False)
-                point_cloud = point_cloud[indices]
-
             # Extract meshes (from first item in batch)
             mesh = transformed_meshes[0]
             verts_list = [v.detach().cpu().numpy() for v in mesh.verts_list()]

@@ -6,29 +6,19 @@
  * Initialize Three.js renderers for all visualization panels
  */
 function initializeRenderers() {
-    // Point Cloud renderer
-    scenes.pointCloud = new THREE.Scene();
-    scenes.pointCloud.background = new THREE.Color(0xf0f0f0);
-    cameras.pointCloud = new THREE.PerspectiveCamera(75, 1, 0.1, 1000);
-    cameras.pointCloud.position.set(0, 0, 2);
-    renderers.pointCloud = new THREE.WebGLRenderer({ antialias: true });
-    renderers.pointCloud.setPixelRatio(window.devicePixelRatio);
-    controls.pointCloud = new THREE.OrbitControls(cameras.pointCloud, renderers.pointCloud.domElement);
-    elements.pointCloudContainer.appendChild(renderers.pointCloud.domElement);
+    // Unified scene for both point cloud and slots/shapes
+    scenes.unified = new THREE.Scene();
+    scenes.unified.background = new THREE.Color(0x15191E);
+    cameras.unified = new THREE.PerspectiveCamera(75, 1, 0.1, 1000);
+    cameras.unified.position.set(0, 0, 2);
+    renderers.unified = new THREE.WebGLRenderer({ antialias: true });
+    renderers.unified.setPixelRatio(window.devicePixelRatio);
+    controls.unified = new THREE.OrbitControls(cameras.unified, renderers.unified.domElement);
+    elements.unifiedContainer.appendChild(renderers.unified.domElement);
 
-    // 3D Scene renderer
-    scenes.scene = new THREE.Scene();
-    scenes.scene.background = new THREE.Color(0xf0f0f0);
-    cameras.scene = new THREE.PerspectiveCamera(75, 1, 0.1, 1000);
-    cameras.scene.position.set(0, 0, 2);
-    renderers.scene = new THREE.WebGLRenderer({ antialias: true });
-    renderers.scene.setPixelRatio(window.devicePixelRatio);
-    controls.scene = new THREE.OrbitControls(cameras.scene, renderers.scene.domElement);
-    elements.sceneContainer.appendChild(renderers.scene.domElement);
-
-    // Prototypes renderer
+    // Prototypes renderer (unchanged)
     scenes.prototypes = new THREE.Scene();
-    scenes.prototypes.background = new THREE.Color(0xf0f0f0);
+    scenes.prototypes.background = new THREE.Color(0x15191E);
     cameras.prototypes = new THREE.PerspectiveCamera(75, 1, 0.1, 1000);
     cameras.prototypes.position.set(0, 0, 2);
     renderers.prototypes = new THREE.WebGLRenderer({ antialias: true });
@@ -37,13 +27,11 @@ function initializeRenderers() {
     elements.prototypesContainer.appendChild(renderers.prototypes.domElement);
 
     // Add axes helpers to all scenes
-    addAxes(scenes.pointCloud);
-    addAxes(scenes.scene);
+    addAxes(scenes.unified);
     addAxes(scenes.prototypes);
 
     // Add lighting to all scenes
-    addLighting(scenes.pointCloud);
-    addLighting(scenes.scene);
+    addLighting(scenes.unified);
     addLighting(scenes.prototypes);
 
     // Initial resize
@@ -84,22 +72,13 @@ function addLighting(scene) {
  * Resize all renderers to match their container elements
  */
 function resizeRenderers() {
-    // Point Cloud
-    if (renderers.pointCloud && elements.pointCloudContainer.offsetWidth > 0) {
-        const pointCloudWidth = elements.pointCloudContainer.clientWidth;
-        const pointCloudHeight = elements.pointCloudContainer.clientHeight;
-        renderers.pointCloud.setSize(pointCloudWidth, pointCloudHeight);
-        cameras.pointCloud.aspect = pointCloudWidth / pointCloudHeight;
-        cameras.pointCloud.updateProjectionMatrix();
-    }
-
-    // 3D Scene
-    if (renderers.scene && elements.sceneContainer.offsetWidth > 0) {
-        const sceneWidth = elements.sceneContainer.clientWidth;
-        const sceneHeight = elements.sceneContainer.clientHeight;
-        renderers.scene.setSize(sceneWidth, sceneHeight);
-        cameras.scene.aspect = sceneWidth / sceneHeight;
-        cameras.scene.updateProjectionMatrix();
+    // Unified view
+    if (renderers.unified && elements.unifiedContainer.offsetWidth > 0) {
+        const unifiedWidth = elements.unifiedContainer.clientWidth;
+        const unifiedHeight = elements.unifiedContainer.clientHeight;
+        renderers.unified.setSize(unifiedWidth, unifiedHeight);
+        cameras.unified.aspect = unifiedWidth / unifiedHeight;
+        cameras.unified.updateProjectionMatrix();
     }
 
     // Prototypes
@@ -118,12 +97,10 @@ function resizeRenderers() {
 function animate() {
     requestAnimationFrame(animate);
 
-    if (controls.pointCloud) controls.pointCloud.update();
-    if (controls.scene) controls.scene.update();
+    if (controls.unified) controls.unified.update();
     if (controls.prototypes) controls.prototypes.update();
 
-    if (renderers.pointCloud) renderers.pointCloud.render(scenes.pointCloud, cameras.pointCloud);
-    if (renderers.scene) renderers.scene.render(scenes.scene, cameras.scene);
+    if (renderers.unified) renderers.unified.render(scenes.unified, cameras.unified);
     if (renderers.prototypes) renderers.prototypes.render(scenes.prototypes, cameras.prototypes);
 }
 
@@ -131,18 +108,26 @@ function animate() {
  * Reset all camera views to default positions
  */
 function resetAllViews() {
-    // Reset point cloud view
-    cameras.pointCloud.position.set(0, 0, 2);
-    cameras.pointCloud.lookAt(0, 0, 0);
-    controls.pointCloud.reset();
-
-    // Reset scene view
-    cameras.scene.position.set(0, 0, 2);
-    cameras.scene.lookAt(0, 0, 0);
-    controls.scene.reset();
+    // Reset unified view
+    if (cameras.unified && controls.unified) {
+        cameras.unified.position.set(0, 0, 2);
+        cameras.unified.lookAt(0, 0, 0);
+        controls.unified.reset();
+    }
 
     // Reset prototypes view
-    cameras.prototypes.position.set(0, 0, 2);
-    cameras.prototypes.lookAt(0, 0, 0);
-    controls.prototypes.reset();
+    if (cameras.prototypes && controls.prototypes) {
+        cameras.prototypes.position.set(0, 0, 2);
+        cameras.prototypes.lookAt(0, 0, 0);
+        controls.prototypes.reset();
+    }
+}
+
+/**
+ * Update depth image plane opacity based on slider
+ */
+function updateDepthImageOpacity(opacity) {
+    if (objects.depthImagePlane && objects.depthImagePlane.material) {
+        objects.depthImagePlane.material.opacity = opacity / 100;
+    }
 }

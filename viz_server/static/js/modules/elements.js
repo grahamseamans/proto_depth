@@ -14,14 +14,19 @@ const elements = {
     navPrototypesMobile: document.getElementById('nav-prototypes-mobile'),
     mainView: document.getElementById('main-view'),
     prototypesView: document.getElementById('prototypes-view'),
-    depthContainer: document.getElementById('depth-container'),
-    pointCloudContainer: document.getElementById('pointcloud-container'),
-    sceneContainer: document.getElementById('scene-container'),
+    unifiedContainer: document.getElementById('unified-container'),
     prototypesContainer: document.getElementById('prototypes-container'),
     prototypeWeightsContainer: document.getElementById('prototype-weights-container'),
     slotToggles: document.getElementById('slot-toggles'),
     weightChart: document.getElementById('weight-chart'),
     loading: document.getElementById('loading'),
+
+    // New UI controls
+    togglePointCloud: document.getElementById('toggle-pointcloud'),
+    showDepthImage: document.getElementById('show-depth-image'),
+    depthImageModal: document.getElementById('depth-image-modal'),
+    closeDepthModal: document.getElementById('close-depth-modal'),
+    modalDepthContainer: document.getElementById('modal-depth-container'),
 };
 
 /**

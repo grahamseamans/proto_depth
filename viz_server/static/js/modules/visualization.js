@@ -3,12 +3,12 @@
  */
 
 /**
- * Render the point cloud from batch data
+ * Render the point cloud from batch data in the unified scene
  */
 function renderPointCloud(pointCloudData) {
     // Clear existing point cloud
     if (objects.pointCloud) {
-        scenes.pointCloud.remove(objects.pointCloud);
+        scenes.unified.remove(objects.pointCloud);
         objects.pointCloud = null;
     }
 
@@ -25,6 +25,8 @@ function renderPointCloud(pointCloudData) {
 
     let minZ = Infinity;
     let maxZ = -Infinity;
+    let minX = Infinity, maxX = -Infinity;
+    let minY = Infinity, maxY = -Infinity;
 
     for (let i = 0; i < points.length; i++) {
         const p = points[i];
@@ -32,6 +34,10 @@ function renderPointCloud(pointCloudData) {
         vertices[i * 3 + 1] = p[1];
         vertices[i * 3 + 2] = p[2];
 
+        minX = Math.min(minX, p[0]);
+        maxX = Math.max(maxX, p[0]);
+        minY = Math.min(minY, p[1]);
+        maxY = Math.max(maxY, p[1]);
         minZ = Math.min(minZ, p[2]);
         maxZ = Math.max(maxZ, p[2]);
     }
@@ -61,19 +67,22 @@ function renderPointCloud(pointCloudData) {
 
     // Create point material
     const material = new THREE.PointsMaterial({
-        size: 0.01,
+        size: 0.05,
         vertexColors: true,
     });
 
     // Create point cloud object
     objects.pointCloud = new THREE.Points(geometry, material);
-    scenes.pointCloud.add(objects.pointCloud);
+    scenes.unified.add(objects.pointCloud);
+
+    // Toggle visibility based on UI
+    objects.pointCloud.visible = elements.togglePointCloud.checked;
 
     // Calculate bounding box and center camera
     geometry.computeBoundingBox();
     const boundingBox = geometry.boundingBox;
 
-    // Center both cameras on the point cloud
+    // Center cameras on the point cloud
     const center = new THREE.Vector3();
     boundingBox.getCenter(center);
 
@@ -81,24 +90,28 @@ function renderPointCloud(pointCloudData) {
     boundingBox.getSize(size);
     const maxDim = Math.max(size.x, size.y, size.z);
 
-    // Position cameras to view the entire point cloud
+    // Position camera to view the entire point cloud
     const distance = maxDim * 2;
-    cameras.pointCloud.position.set(center.x, center.y, center.z + distance);
-    cameras.pointCloud.lookAt(center);
-    controls.pointCloud.target.copy(center);
+    cameras.unified.position.set(center.x, center.y, center.z + distance);
+    cameras.unified.lookAt(center);
+    controls.unified.target.copy(center);
 
-    cameras.scene.position.set(center.x, center.y, center.z + distance);
-    cameras.scene.lookAt(center);
-    controls.scene.target.copy(center);
+    // Store point cloud bounds for future reference
+    state.pointCloudBounds = {
+        min: { x: minX, y: minY, z: minZ },
+        max: { x: maxX, y: maxY, z: maxZ },
+        center: center.clone(),
+        size: size.clone()
+    };
 }
 
 /**
- * Render slot meshes from batch data
+ * Render slot meshes from batch data in the unified scene
  */
 function renderSlots(slotsData) {
     // Clear existing slots
     for (const slot of objects.slots) {
-        scenes.scene.remove(slot);
+        scenes.unified.remove(slot);
     }
     objects.slots = [];
 
@@ -155,7 +168,7 @@ function renderSlots(slotsData) {
         mesh.userData = { slotId, index };
 
         // Add to scene
-        scenes.scene.add(mesh);
+        scenes.unified.add(mesh);
         objects.slots.push(mesh);
     });
 }

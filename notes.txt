@@ -23,3 +23,5 @@ i should probably crank up the loss point cloud too.
 
 I think that I should ahve a little like, popup reference for the actual image its mean to be based on
 and then a big view with both the point cloud and slots visualized in it.
+
+model.py has truly terrible naming work done.

@@ -10,7 +10,7 @@ async function initializeApplication() {
         setDataHandlers(loadRun, loadEpoch);
 
         // Initialize UI
-        setupEventListeners();
+        initUI();
 
         // Initialize renderers
         initializeRenderers();

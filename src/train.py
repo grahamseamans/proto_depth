@@ -17,7 +17,6 @@ from tqdm import tqdm
 from .model import DepthEncoder
 from .mesh_utils import MeshTransformer
 from .dataloader import DataHandler, transform_fn, create_data_loaders
-from .visualize import DepthVisualizer, update_progress, save_final_visualizations
 from .viz_exporter import VizExporter
 
 
@@ -53,7 +52,7 @@ def train(
         num_prototypes=num_prototypes, num_slots=num_slots, device=device
     ).to(device)
     mesh_transformer = MeshTransformer(device=device)
-    visualizer = DepthVisualizer(device=device)
+    # visualizer = DepthVisualizer(device=device)
 
     # Setup data - get all PNG files in the directory
     depth_files = [(path,) for path in glob(os.path.join(data_path, "*.png"))]
@@ -165,20 +164,20 @@ def train(
                     f"Per-slot Chamfer = {per_slot_chamfer_loss.item():.4f}"
                 )
                 # Standard 2D depth map visualization
-                update_progress(
-                    epoch + 1,
-                    global_batch,
-                    loss.item(),
-                    depth_img_3ch,
-                    transformed_meshes,
-                    visualizer,
-                    original_depth=original_depth,
-                    global_chamfer=global_chamfer_loss.item(),
-                    per_slot_chamfer=per_slot_chamfer_loss.item(),
-                    scales=scales,
-                    transforms=transforms,
-                    prototype_weights=prototype_weights,
-                )
+                # update_progress(
+                #     epoch + 1,
+                #     global_batch,
+                #     loss.item(),
+                #     depth_img_3ch,
+                #     transformed_meshes,
+                #     visualizer,
+                #     original_depth=original_depth,
+                #     global_chamfer=global_chamfer_loss.item(),
+                #     per_slot_chamfer=per_slot_chamfer_loss.item(),
+                #     scales=scales,
+                #     transforms=transforms,
+                #     prototype_weights=prototype_weights,
+                # )
 
                 # Export data for interactive visualization
                 if use_interactive_viz and viz_exporter is not None:
@@ -204,14 +203,14 @@ def train(
         avg_loss = total_loss / max(num_batches, 1)  # Avoid division by zero
         tqdm.write(f"\nEpoch {epoch + 1}/{num_epochs}, Average Loss: {avg_loss:.4f}")
 
-    # After training is complete, generate final visualizations
-    save_final_visualizations(
-        model=model,
-        data_loader=train_loader,
-        num_samples=num_final_samples,
-        visualizer=visualizer,
-        device=device,
-    )
+    # # After training is complete, generate final visualizations
+    # save_final_visualizations(
+    #     model=model,
+    #     data_loader=train_loader,
+    #     num_samples=num_final_samples,
+    #     visualizer=visualizer,
+    #     device=device,
+    # )
 
 
 if __name__ == "__main__":

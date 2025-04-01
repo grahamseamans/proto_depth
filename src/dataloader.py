@@ -42,10 +42,9 @@ def depth_to_pointcloud(depth, focal=FOCAL, max_depth=MAX_DEPTH):
 
     # Convert to Three.js coordinate system:
     # - Z is negated (Three.js uses -Z as forward)
-    # - Y is flipped (Three.js uses Y-up, but image coordinates are Y-down)
     Z = -depth  # Negate Z to match Three.js -Z forward convention
-    X = (u - cx) / fx * Z  # X remains the same (right is positive)
-    Y = -(v - cy) / fy * Z  # Flip Y to match Three.js Y-up convention
+    X = -(u - cx) / fx * Z
+    Y = (v - cy) / fy * Z
 
     points = np.stack((X, Y, Z), axis=-1).reshape(-1, 3)
     valid_mask = (

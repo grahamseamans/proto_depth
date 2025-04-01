@@ -111,34 +111,35 @@
     <!-- Main Content -->
     <div class="p-2">
         <!-- Main View -->
-        <div id="main-view" class="grid grid-cols-1 md:grid-cols-3 gap-2 visualization-container">
-            <div class="card bg-base-100 shadow-xl">
-                <div class="card-body p-2">
-                    <h2 class="card-title">Depth Image</h2>
-                    <div id="depth-container" class="h-full flex items-center justify-center">
-                        <div class="placeholder">No depth image available</div>
+        <div id="main-view" class="visualization-container">
+            <div class="card bg-base-100 shadow-xl h-full">
+                <div class="card-body p-2 h-full">
+                    <div class="flex justify-between items-center">
+                        <h2 class="card-title">Integrated 3D Visualization</h2>
+                        <div class="flex gap-2">
+                            <div class="form-control">
+                                <label class="label cursor-pointer gap-2">
+                                    <span class="label-text">Point Cloud</span>
+                                    <input type="checkbox" class="toggle toggle-primary" id="toggle-pointcloud"
+                                        checked />
+                                </label>
+                            </div>
+                            <button id="show-depth-image" class="btn btn-sm btn-primary">Show Depth Image</button>
+                        </div>
                     </div>
-                </div>
-            </div>
-            <div class="card bg-base-100 shadow-xl">
-                <div class="card-body p-2">
-                    <h2 class="card-title">Point Cloud</h2>
-                    <div id="pointcloud-container" class="panel-3d">
-                        <!-- Three.js will render here -->
-                    </div>
-                </div>
-            </div>
-            <div class="card bg-base-100 shadow-xl">
-                <div class="card-body p-2">
-                    <h2 class="card-title">3D Scene</h2>
-                    <div id="scene-container" class="panel-3d">
+                    <div id="unified-container" class="panel-3d h-full">
                         <!-- Three.js will render here -->
                         <div id="weight-chart" class="weight-chart hidden">
                             <!-- Weight chart will be rendered here -->
                         </div>
                     </div>
-                    <div id="slot-toggles" class="flex flex-wrap gap-2 mt-2">
-                        <!-- Slot toggle buttons will be added here -->
+                    <div class="flex flex-wrap gap-4 mt-2">
+                        <div class="flex-grow">
+                            <label class="label"><span class="label-text">Slots</span></label>
+                            <div id="slot-toggles" class="flex flex-wrap gap-2">
+                                <!-- Slot toggle buttons will be added here -->
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -170,6 +171,19 @@
         <div class="bg-white p-4 rounded-lg shadow-lg">
             <span class="loading loading-spinner loading-lg"></span>
             <span class="ml-2">Loading data...</span>
+        </div>
+    </div>
+
+    <!-- Depth Image Modal -->
+    <div id="depth-image-modal" class="modal">
+        <div class="modal-box">
+            <h3 class="font-bold text-lg">Depth Image</h3>
+            <div id="modal-depth-container" class="py-4 flex items-center justify-center">
+                <div class="placeholder">No depth image available</div>
+            </div>
+            <div class="modal-action">
+                <button id="close-depth-modal" class="btn">Close</button>
+            </div>
         </div>
     </div>
 

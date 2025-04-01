@@ -123,13 +123,7 @@ async function loadBatch(runId, epochId, batchId) {
         state.batchData = batchData;
         state.currentBatch = batchId;
 
-        // Load depth image if available
-        if (batchData.has_depth_image) {
-            const imgUrl = `/api/run/${runId}/epoch/${epochId}/batch/${batchId}/depth_img.png`;
-            elements.depthContainer.innerHTML = `<img src="${imgUrl}" alt="Depth Image" style="max-height: 100%; max-width: 100%;">`;
-        } else {
-            elements.depthContainer.innerHTML = '<div class="placeholder">No depth image available</div>';
-        }
+        // No need to pre-load the depth image - it will be loaded when the modal is opened
 
         // Render 3D visualizations
         // Using globally accessible functions (no imports/exports)
