@@ -77,15 +77,13 @@ class DepthEncoder(nn.Module):
         # Apply scaling to create scene-scale transforms
         scene_scale_transforms = torch.zeros_like(raw_transforms)
 
-        # MODIFIED: Positions need large range (meters) - use softplus with increased scaling
-        # Old value was 50.0, increasing to 100.0 to make shapes more visible
-        position_scale = 100.0
-        # Also add a minimum offset to ensure positions are not too close to zero
-        min_position_offset = 10.0  # Minimum 10 meters
+        # Use tanh with large scaling for translation vectors to allow full range positioning
+        # This allows positions in range [-1000, 1000] meters in all directions
+        position_scale = 1000.0
 
-        # Apply scaling and offset to positions
+        # Apply tanh scaling to positions (allows both positive and negative values)
         scene_scale_transforms[..., :3] = (
-            F.softplus(raw_transforms[..., :3]) * position_scale + min_position_offset
+            torch.tanh(raw_transforms[..., :3]) * position_scale
         )
 
         # Rotations bounded to [-π, π] - use tanh with pi scaling
