@@ -40,12 +40,17 @@ def depth_to_pointcloud(depth, focal=FOCAL, max_depth=MAX_DEPTH):
     u = u.astype(np.float32)
     v = v.astype(np.float32)
 
-    Z = depth
-    X = (u - cx) / fx * Z
-    Y = (v - cy) / fy * Z
+    # Convert to Three.js coordinate system:
+    # - Z is negated (Three.js uses -Z as forward)
+    # - Y is flipped (Three.js uses Y-up, but image coordinates are Y-down)
+    Z = -depth  # Negate Z to match Three.js -Z forward convention
+    X = (u - cx) / fx * Z  # X remains the same (right is positive)
+    Y = -(v - cy) / fy * Z  # Flip Y to match Three.js Y-up convention
 
     points = np.stack((X, Y, Z), axis=-1).reshape(-1, 3)
-    valid_mask = points[:, 2] < max_depth
+    valid_mask = (
+        points[:, 2] > -max_depth
+    )  # Z is now negative, so compare with negative max_depth
     points = points[valid_mask]
     return points
 
@@ -301,7 +306,7 @@ def display_data(depth_img_3ch, points, depth_norm):
     ax2.text2D(
         0.05,
         0.95,
-        "Camera at Origin\nLooking along +Z",
+        "Camera at Origin\nLooking along -Z",
         transform=ax2.transAxes,
         bbox=dict(boxstyle="round", fc="w"),
     )

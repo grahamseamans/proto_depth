@@ -18,7 +18,7 @@ from .model import DepthEncoder
 from .mesh_utils import MeshTransformer
 from .dataloader import DataHandler, transform_fn, create_data_loaders
 from .visualize import DepthVisualizer, update_progress, save_final_visualizations
-from .visualize_3d import visualize_3d_comparison
+from .viz_exporter import VizExporter
 
 
 def train(
@@ -35,9 +35,16 @@ def train(
     w_edge=0.1,  # Reduced to allow more aggressive movement
     w_normal=0.01,
     w_laplacian=0.1,
+    # Visualization options
+    use_interactive_viz=True,
 ):
-    # Create output directory for visualizations
+    # Create output directories for visualizations
     os.makedirs("training_progress", exist_ok=True)
+
+    # Initialize visualization exporter if interactive visualization is enabled
+    viz_exporter = None
+    if use_interactive_viz:
+        viz_exporter = VizExporter(local_mode=True)
 
     # Initialize model, mesh transformer and visualizer
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -173,14 +180,22 @@ def train(
                     prototype_weights=prototype_weights,
                 )
 
-                # 3D visualization at the same frequency as regular visualization
-                visualize_3d_comparison(
-                    points_list,
-                    transformed_meshes,
-                    epoch=epoch + 1,
-                    batch=global_batch,
-                    device=device,
-                )
+                # Export data for interactive visualization
+                if use_interactive_viz and viz_exporter is not None:
+                    viz_exporter.export_visualization_data(
+                        epoch=epoch + 1,
+                        batch=global_batch,
+                        depth_img=depth_img_3ch,
+                        points_list=points_list,
+                        transformed_meshes=transformed_meshes,
+                        prototype_offsets=prototype_offsets,
+                        prototype_weights=prototype_weights,
+                        scales=scales,
+                        transforms=transforms,
+                        loss=loss.item(),
+                        global_chamfer=global_chamfer_loss.item(),
+                        per_slot_chamfer=per_slot_chamfer_loss.item(),
+                    )
 
         # Close the batch progress bar
         batch_pbar.close()

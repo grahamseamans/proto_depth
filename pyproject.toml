@@ -16,3 +16,6 @@ dependencies = [
     "trimesh>=4.5.3",
     "tqdm>=4.66.0",
 ]
+
+[tool.uv.workspace]
+members = ["viz_server"]

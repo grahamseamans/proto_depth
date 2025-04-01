@@ -20,6 +20,8 @@ if __name__ == "__main__":
         "w_edge": 0.3,  # Weight for edge length regularization (balanced)
         "w_normal": 0.3,  # Weight for normal consistency (balanced)
         "w_laplacian": 0.3,  # Weight for laplacian smoothing (balanced)
+        # Visualization options
+        "use_interactive_viz": True,  # Export data for interactive visualization
     }
 
     # Start training
