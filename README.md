@@ -1,5 +1,7 @@
 # Project Plan: Depthmap to 3d scene encoder.
 
+<img width="322" alt="GneOUObbQAA3f2S" src="https://github.com/user-attachments/assets/294bf7d2-93d8-4ee4-a16a-4a8338abef53" />
+
 ## Phase One: Encoder from Visual to 3D
 
 ### Dataset
