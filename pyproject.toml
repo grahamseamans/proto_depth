@@ -3,19 +3,13 @@ name = "proto-depth"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 dependencies = [
-    "annoy>=1.17.3",
-    "imageio>=2.36.1",
-    "matplotlib>=3.10.0",
-    "pymeshlab>=2023.12.post2",
-    "rtree>=1.3.0",
-    "scipy>=1.14.1",
-    "tinygrad>=0.10.0",
-    "torch>=2.5.1",
-    "trimesh>=4.5.3",
-    "tqdm>=4.66.0",
+    "kaolin>=0.1",
+    "numpy>=2.2.4",
+    "pillow>=11.1.0",
+    "requests>=2.32.3",
+    "scipy>=1.15.2",
+    "torch>=2.6.0",
+    "tqdm>=4.67.1",
 ]
-
-[tool.uv.workspace]
-members = ["viz_server"]

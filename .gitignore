@@ -16,6 +16,8 @@ training_progress_3d/
 venv/
 env/
 
+3d_models/
+
 # Data and large files
 data/
 *.png

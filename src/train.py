@@ -66,13 +66,14 @@ def train(
     depth_files = [(path,) for path in glob(os.path.join(data_path, "*.png"))]
     print(f"Found {len(depth_files)} depth images")
 
-    # Create PyTorch DataLoaders
+    # Create PyTorch DataLoaders with more workers for parallelization
+    num_workers = kwargs.get("num_workers", 4)  # Get from kwargs or use 4 as default
     train_loader, test_loader = create_data_loaders(
         data=depth_files,
         transform_fn=transform_fn,
         batch_size=batch_size,
         test_ratio=0.2,
-        num_workers=4,
+        num_workers=num_workers,
     )
 
     # Print actual dataset sizes
@@ -181,8 +182,10 @@ def train(
             if profiling_active:
                 detailed_timing["mesh_transform"].append(t1 - t0)
 
-            # Compute chamfer loss with memory-optimized hybrid approach
+            # Compute chamfer loss with optimized hybrid approach
             t0 = time.time()
+            # Get the k_nearest parameter from kwargs or use default of 3
+            k_nearest = kwargs.get("k_nearest", 3)
             chamfer_loss, global_chamfer_loss, per_slot_chamfer_loss = (
                 mesh_transformer.compute_hybrid_chamfer_loss(
                     transformed_meshes,
@@ -192,6 +195,7 @@ def train(
                     repulsion_weight=repulsion_weight,
                     samples_per_slot=samples_per_slot,
                     min_distance=min_distance,
+                    k_nearest=k_nearest,
                 )
             )
             t1 = time.time()

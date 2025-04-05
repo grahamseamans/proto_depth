@@ -4,6 +4,7 @@ import numpy as np
 from PIL import Image
 import torch
 import matplotlib.pyplot as plt
+import torch.nn.functional as F
 
 # If needed, adjust these constants or put them as arguments.
 FOCAL = 847.630211643
@@ -54,24 +55,50 @@ def depth_to_pointcloud(depth, focal=FOCAL, max_depth=MAX_DEPTH):
     return points
 
 
+# Define a standard size for all depth images
+STANDARD_SIZE = (640, 480)  # (width, height)
+
+
 def transform_fn(data_item):
     # data_item is a tuple (depth_path,)
     depth_path = data_item[0]
 
+    # Load the depth image
     depth = load_depth_image(depth_path)
-    depth_normalized = normalize_depth(depth)
 
-    # Convert to Tensors
-    depth_img = torch.from_numpy(depth_normalized[None].astype(np.float32))  # (1,H,W)
-    depth_img_3ch = depth_img.expand(3, -1, -1)  # (3,H,W)
-
-    # Also keep the original depth in meters for visualization
-    depth_meters = torch.from_numpy(depth[None].astype(np.float32))  # (1,H,W)
-
+    # Generate point cloud from original size depth
     points = depth_to_pointcloud(depth)
+
     # Subsample points to a fixed size to ensure consistent tensor dimensions
     points = stratified_depth_sampling(points, bins=5, samples_per_bin=2000)
     points_t = torch.from_numpy(points.astype(np.float32))  # (N,3)
+
+    # Normalize the depth
+    depth_normalized = normalize_depth(depth)
+
+    # Convert to tensor
+    depth_img = torch.from_numpy(depth_normalized[None].astype(np.float32))  # (1,H,W)
+
+    # Also keep the original depth in meters for visualization (will also be resized)
+    depth_meters = torch.from_numpy(depth[None].astype(np.float32))  # (1,H,W)
+
+    # Resize both the normalized depth and original depth to standard size
+    depth_img = F.interpolate(
+        depth_img.unsqueeze(0),  # Add batch dimension for interpolation
+        size=STANDARD_SIZE[::-1],  # PyTorch uses (height, width)
+        mode="bilinear",
+        align_corners=False,
+    ).squeeze(0)  # Remove the batch dimension
+
+    depth_meters = F.interpolate(
+        depth_meters.unsqueeze(0),
+        size=STANDARD_SIZE[::-1],
+        mode="bilinear",
+        align_corners=False,
+    ).squeeze(0)
+
+    # Expand to 3 channels
+    depth_img_3ch = depth_img.expand(3, -1, -1)  # (3,H,W)
 
     # return (input, target, original_depth) format
     return (depth_img_3ch, points_t, depth_meters)
