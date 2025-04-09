@@ -68,6 +68,12 @@ def main():
         help="Interval for visualization updates",
     )
     parser.add_argument(
+        "--iterations_per_epoch",
+        type=int,
+        default=5,
+        help="Number of iterations to group into one artificial epoch (for visualization purposes)",
+    )
+    parser.add_argument(
         "--image_index",
         type=int,
         default=-1,
@@ -162,10 +168,15 @@ def main():
             )
             print(f"Prototype weights shape: {prototype_weights.shape}")
 
+            # Calculate artificial epoch based on iteration number
+            artificial_epoch = iteration // args.iterations_per_epoch
+            # Use iteration within epoch as batch number
+            batch_in_epoch = iteration % args.iterations_per_epoch
+
             # Export for visualization
             viz_exporter.export_visualization_data(
-                epoch=0,  # No epochs in this approach
-                batch=iteration,
+                epoch=artificial_epoch,  # Use artificial epoch for visualization
+                batch=batch_in_epoch,
                 depth_img=depth_img_tensor.unsqueeze(0).to(device),  # Add batch dim
                 points_list=[point_cloud],  # Wrap in list for compatibility
                 slots=slot_meshes,
@@ -199,7 +210,12 @@ def main():
     print("\nOptimization complete!")
     print(f"Final loss: {optimizer.loss_history[-1]:.6f}")
 
-    # Final visualization
+    # Print epoch structure information
+    print(f"\nArtificial epochs created (for visualization only):")
+    print(f"  Iterations per epoch: {args.iterations_per_epoch}")
+    print(f"  Total epochs: {args.num_iterations // args.iterations_per_epoch + 1}")
+
+    # Final visualization - make sure it's grouped into the correct epoch
     viz_callback(optimizer, point_cloud, args.num_iterations)
 
     print("\nVisualizations have been exported to the viz_server.")

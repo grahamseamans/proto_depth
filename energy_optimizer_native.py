@@ -16,10 +16,7 @@ import kaolin.metrics.pointcloud as kaolin_metrics
 
 # Import our custom geometry utilities instead of PyTorch3D
 from geometry_utils import generate_icosphere, SimpleMesh, euler_angles_to_matrix
-from geometry_utils.spatial_hash import (
-    create_spatial_hash,
-    find_nearest_triangle_indices,
-)
+from geometry_utils.spatial_hash import HierarchicalGrid
 
 
 class EnergyBasedSceneOptimizer:
@@ -185,7 +182,7 @@ class EnergyBasedSceneOptimizer:
 
     def compute_loss(self, point_cloud):
         """
-        Compute the L2 squared distance loss using GPU-accelerated spatial hash table.
+        Compute the L2 squared distance loss using GPU-accelerated hierarchical grid.
 
         Args:
             point_cloud: Tensor of shape [N, 3] - the target point cloud
@@ -196,21 +193,48 @@ class EnergyBasedSceneOptimizer:
         # Get slot meshes
         _, all_triangles, _ = self.get_slots()
 
-        # Build or update spatial hash tables occasionally
-        rebuild_interval = 10  # Rebuild the spatial hash every 10 iterations
-        if (
-            not hasattr(self, "spatial_hash_tables")
-            or self.iteration % rebuild_interval == 0
-        ):
-            # Create spatial hash with 3 levels (fine, medium, coarse)
-            self.spatial_hash_tables = create_spatial_hash(
-                all_triangles, point_cloud, max_level=3, min_cell_size=1.0
-            )
+        # Initialize hierarchical grid if not already created
+        if not hasattr(self, "hierarchical_grid"):
+            self.hierarchical_grid = HierarchicalGrid()
 
-        # Find nearest triangles using spatial hash
-        triangle_indices = find_nearest_triangle_indices(
-            point_cloud, all_triangles, self.spatial_hash_tables
+        # Performance timing (non-intrusive)
+        start_time = torch.cuda.Event(enable_timing=True)
+        end_time = torch.cuda.Event(enable_timing=True)
+
+        # Time the grid update
+        start_time.record()
+
+        # Create or update hierarchical grid (pre-allocates memory and reuses it in subsequent calls)
+        # This eliminates the performance spikes caused by periodic rebuilding
+        self.hierarchical_grid.create_or_update(
+            all_triangles,
+            point_cloud,
+            num_levels=3,
+            base_cell_size=1.0,
+            growth_factor=2.0,
         )
+
+        end_time.record()
+        torch.cuda.synchronize()
+        grid_update_time = start_time.elapsed_time(end_time)
+
+        # Time the nearest triangle search
+        start_time.record()
+
+        # Find nearest triangles using hierarchical grid
+        triangle_indices = self.hierarchical_grid.find_nearest_triangles(
+            point_cloud, all_triangles
+        )
+
+        end_time.record()
+        torch.cuda.synchronize()
+        search_time = start_time.elapsed_time(end_time)
+
+        # Every 10 iterations, log timing information
+        if self.iteration % 10 == 0:
+            print(
+                f"[Iteration {self.iteration}] Grid update: {grid_update_time:.2f}ms, Search: {search_time:.2f}ms"
+            )
 
         # Get corresponding triangles
         closest_triangles = all_triangles[triangle_indices]  # [N, 3, 3]

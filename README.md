@@ -1,121 +1,83 @@
-# Project Plan: Depthmap to 3d scene encoder.
+# 4D Reality Learning System
 
-<img width="322" alt="GneOUObbQAA3f2S" src="https://github.com/user-attachments/assets/294bf7d2-93d8-4ee4-a16a-4a8338abef53" />
+## Core Insight
+Position, objects, and understanding emerge naturally from observing reality over time. Rather than imposing static concepts, we let 4D understanding emerge through direct energy optimization.
 
-## Phase One: Encoder from Visual to 3D
+## Implementation Approach
 
-### Dataset
-- Use the SYNTHIA dataset or similar.
-- Preprocess the depth maps into point clouds for alignment during training.
+### Phase 1: Direct Energy Optimization
 
-### Goals
-- Develop a system to encode a depth map into 3D scene representations:
-  - **Prototypes:** Differentiable 3D meshes representing objects.
-  - **Object Parameters:** Each object is parameterized by scale, position, orientation, and prototype weights.
 
-### Steps
-1. **Input and Network Design**
-   - Input: Depth map.
-   - **Encoder Architecture:** 
-     - Use a ResNet or similar to extract a latent vector for each object slot.
-     - Decompose as follows:
-       - Scale: `scale = vecta[:1]`
-       - Transform (Position & Orientation): `transform = vecta[1:7]` (x, y, z, yaw, pitch, roll)
-       - Prototype Weights: `logits = vecta[7:x]`
-   - Apply softmax to logits to assign a weighted combination of prototypes, allowing smooth interpolation between prototypes.
+1. **Initial Scene**
+   - Two dragons moving through space
+   - Multiple camera viewpoints
+   - Point clouds from camerea depth maps
+   - Direct state optimization via Chamfer loss
+   - Pure energy minimization without neural networks
 
-2. **Prototype Handling**
-   - Define a bank of differentiable 3D meshes (prototypes).
-   - **Blurring Prototypes:** interpolate between prototypes based on softmax weights to enable gradient flow.
+2. **State Representation**
+   - Object slots containing:
+     - Position (x, y, z)
+     - Rotation (yaw, pitch, roll)
+     - Scale
+     - Type parameters (categorical distribution)
+   - Camera parameters (position, rotation)
+   - All directly optimized through energy minimization
 
-3. **Scene Reconstruction**
-   - For each object:
-     - Select and blend prototypes using the softmax-weighted combination of `logits`.
-     - Transform prototypes using `scale` and `transform`.
-   - Render for fun.
-   - Really each object is a mesh transform - we actually just have one true object (the sphere) which doesn't get backpropped, but we have all of these mesh transforms.
+3. **Type Learning**
+   - Objects viewed as transforms over a base atom
+   - Type parameters form a categorical distribution
+   - Blend transforms by their weights in distribution
+   - Results in differentiable object type detection
+   - Smooth interpolation between object types
 
-   when we make linear combo we softmax the logits, then use that to scale how much of each transform is used on the sphere
+4. **Progressive Complexity**
+   - Start: Two static dragons, moving cameras
+   - Add: Additional dragons
+   - Add: Different object types (bunny)
+   - Scale to more complex scenes
 
-4. **Loss Function**
-   - Use one directional point cloud loss (e.g., Chamfer Distance):
-     - Compare the transformed meshes with the point cloud derived from the input depth map.
-     - For each point in the depth map's point cloud, find the closest point on any mesh and bring it closer.
+5. **Loss Function**
+   - Chamfer distance between:
+     - Point cloud from depth frames
+     - Point cloud from current state
+   - Direct gradient path to state parameters
+   - No intermediate neural network layers
 
-5. **Output**
-   - Train the network to minimize loss, learning prototypes and how to use them to reconstruct 3D scenes from depth maps.
+### Future: RL-Based Understanding Layer
 
----
+The system will evolve to include an RL agent that:
+- Predicts future states to minimize energy spikes
+- Detects and corrects local minima
+- Guides learning toward better understanding
+- Integrates new information with past knowledge
 
-## Phase Two: Autoregressive Model for Video Sequences
+## Key Principles
+1. Reality itself is the ultimate unsupervised learning dataset
+2. Understanding emerges from minimizing energy across time
+4. Future prediction is key to true understanding
 
-### Dataset
-- Use SYNTHIA's video sequences for temporal data with camera motion and object dynamics.
+## Current Focus
+Building the foundational energy-based optimization system that will serve as the backbone for future cognitive capabilities. This creates a clear path toward a system that truly learns to understand reality by watching it unfold.
 
-### Goals
-- Extend the system to process video input, learning object trajectories and enforcing temporal consistency.
+## Future Directions
 
-### Steps
-1. **Slot-Based Representation**
-   - Represent each object slot with a vector for each frame.
-   - Penalize changes in prototype weights to maintain object consistency across frames.
+### 1. Movement Prediction
+- Predict future states to minimize energy spikes
+- Handle varying time scales and rates
+- Learn natural motion patterns
 
-2. **Temporal Regularization**
-   - **Motion Loss:** Apply regularization for natural motion patterns, such as:
-     - Parabolic trajectories for object movement.
-     - Smooth transitions in object transformations (scale, position, orientation).
-   - **Loss Application:** Apply motion loss to all object transformations
+### 2. Object Relationships
+- Learn how objects interact and influence each other
+- Understand coupled dynamics
+- Model hierarchical relationships
 
-3. **Camera Integration** (optional as motion is relative, but might help)
-   - Add a **camera vector** (position and rotation) to model relative camera motion.
-   - Use the camera vector to align object transformations with the global frame.
+### 3. Advanced Type Learning
+- Hierarchical prototypes (e.g. wheels on cars)
+- Shared components between types
+- Smooth transitions between related types
 
-4. **Loss Function**
-   - **Temporal Consistency Loss:** Penalize abrupt changes in object parameters across frames.
-   - **Depth Alignment:** Continue using depth map and point cloud losses for each frame.
-
-5. **Output**
-   - Train the network to reconstruct consistent 3D scenes across video frames.
-
----
-
-## Stretch Goals
-
-### 1. Movement Cycles for Prototypes
-- Add specific motion cycles (e.g., wheel turning, walking) for manipulating prototypes.
-- Incorporate motion cycle parameters into the object vectors.
-
-### 2. Associating Prototypes with Words
-- Map prototypes to nouns and motions to verbs for semantic understanding.
-- Use language models to integrate text annotations with visual data.
-
-### 3. Coupling Objects
-- Learn relationships between objects, such as:
-  - A person entering a car and moving with it.
-- Model coupled dynamics in the loss function.
-
-### 4. Prototypical Textures
-- Extend the system to learn textures (e.g., colors, fonts) for prototypes.
-- Render scenes with both 3D structure and textural realism.
-
-### 4. Hierarcical protoypes
-- Something more like this: (https://arxiv.org/pdf/1905.05622)
-- Wheels are on bikes, cars... find a way to have these objects share prototypes.
-
-if the autoregressive thing works, i can copy deepseek grpo, make time seperate from steps, and then have it rl try to get to later frames.
-
-so like give it 10 frames, then ask it what it thinks is going to happen at t + 10, maybe with a few guesses and then reward it if any of them are right
-
-it can take as many steps as it wants, so it would need to like, train in a weird way where it wasn't time locked.
-
-(to clarify here, the idea is that with a sequence of x inputs, they're not linearly spaced over time with 1/x being the time difference between steps)
-
-but if it can learn that each of it's inputs aren't time locked, and that time itself is some, like, seperate quality, that can move forwards and backwards, 
-
-then we're doing great
-
-we could train it will all sort of sequences, with increasing and decreasing rate of time
-
-fast rate of time, slow rate of time.
-
-time would need to be an input, like the depth map, idk what time would be, a string? utc? relative (sine waves again?) idk, it's different from positional embedding though.
+### 4. Temporal Understanding
+- Non-linear time representation
+- Variable time scales
+- Past and future prediction

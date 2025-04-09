@@ -4,76 +4,100 @@
 
 namespace py = pybind11;
 
-// Helper function to convert SpatialHashLevel to Python dict
-py::dict convert_hash_level_to_dict(const SpatialHashLevel &level)
+// Wrapper for HierarchicalGrid object management
+class PyHierarchicalGrid
 {
-      py::dict result;
-      result["cell_counts"] = level.cell_counts;
-      result["cell_offsets"] = level.cell_offsets;
-      result["triangle_indices"] = level.triangle_indices;
-      result["hash_table_size"] = level.hash_table_size;
-      return result;
-}
+private:
+      HierarchicalGrid *grid;
 
-// Helper function to convert Python dict to SpatialHashLevel
-SpatialHashLevel convert_dict_to_hash_level(const py::dict &dict)
-{
-      SpatialHashLevel level;
-      level.cell_counts = dict["cell_counts"].cast<torch::Tensor>();
-      level.cell_offsets = dict["cell_offsets"].cast<torch::Tensor>();
-      level.triangle_indices = dict["triangle_indices"].cast<torch::Tensor>();
-      level.hash_table_size = dict["hash_table_size"].cast<int>();
-      return level;
-}
+public:
+      PyHierarchicalGrid() : grid(nullptr) {}
 
-// Build hash tables and convert to Python list of dicts
-py::list build_spatial_hash(
-    torch::Tensor triangles,
-    torch::Tensor point_cloud,
-    int max_level,
-    float min_cell_size)
-{
-      auto hash_levels = build_spatial_hash_tables(triangles, point_cloud, max_level, min_cell_size);
-
-      py::list result;
-      for (const auto &level : hash_levels)
+      ~PyHierarchicalGrid()
       {
-            result.append(convert_hash_level_to_dict(level));
+            if (grid)
+            {
+                  free_hierarchical_grid(grid);
+                  grid = nullptr;
+            }
       }
 
-      return result;
-}
-
-// Convert Python list of dicts to SpatialHashLevel and find nearest triangles
-torch::Tensor find_nearest_triangles_from_hash(
-    torch::Tensor point_cloud,
-    torch::Tensor triangles,
-    const py::list &hash_levels_list)
-{
-      std::vector<SpatialHashLevel> hash_levels;
-
-      for (const auto &item : hash_levels_list)
+      void create_or_update(
+          torch::Tensor triangles,
+          torch::Tensor point_cloud,
+          int num_levels = 3,
+          float base_cell_size = 1.0,
+          float growth_factor = 2.0)
       {
-            auto dict = item.cast<py::dict>();
-            hash_levels.push_back(convert_dict_to_hash_level(dict));
+            grid = create_or_update_hierarchical_grid(
+                triangles,
+                point_cloud,
+                grid,
+                num_levels,
+                base_cell_size,
+                growth_factor);
       }
 
-      return find_nearest_triangles(point_cloud, triangles, hash_levels);
-}
+      torch::Tensor find_nearest_triangles(
+          torch::Tensor point_cloud,
+          torch::Tensor triangles)
+      {
+            if (!grid)
+            {
+                  throw std::runtime_error("Hierarchical grid not initialized. Call create_or_update first.");
+            }
+
+            return find_nearest_triangles_hierarchical(
+                point_cloud,
+                triangles,
+                grid);
+      }
+
+      py::dict get_stats()
+      {
+            if (!grid)
+            {
+                  throw std::runtime_error("Hierarchical grid not initialized.");
+            }
+
+            py::dict stats;
+            stats["num_levels"] = grid->num_levels;
+            stats["base_cell_size"] = grid->base_cell_size;
+            stats["growth_factor"] = grid->growth_factor;
+            stats["num_triangles"] = grid->num_triangles;
+
+            py::list level_stats;
+            for (int i = 0; i < grid->num_levels; i++)
+            {
+                  py::dict level_dict;
+                  level_dict["grid_size"] = grid->levels[i].grid_size;
+                  level_dict["cell_size"] = grid->levels[i].cell_size;
+                  level_dict["num_non_empty_bins"] =
+                      torch::nonzero(grid->levels[i].bin_counts).size(0);
+                  level_stats.append(level_dict);
+            }
+            stats["levels"] = level_stats;
+
+            return stats;
+      }
+};
 
 // Python bindings
 PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
 {
-      m.def("build_spatial_hash_tables", &build_spatial_hash,
-            "Build spatial hash tables for multiple levels",
-            py::arg("triangles"),
-            py::arg("point_cloud"),
-            py::arg("max_level") = 3,
-            py::arg("min_cell_size") = 1.0);
-
-      m.def("find_nearest_triangles", &find_nearest_triangles_from_hash,
-            "Find nearest triangle for each point in the point cloud",
-            py::arg("point_cloud"),
-            py::arg("triangles"),
-            py::arg("hash_levels"));
+      py::class_<PyHierarchicalGrid>(m, "HierarchicalGrid")
+          .def(py::init<>())
+          .def("create_or_update", &PyHierarchicalGrid::create_or_update,
+               "Create or update the hierarchical grid",
+               py::arg("triangles"),
+               py::arg("point_cloud"),
+               py::arg("num_levels") = 3,
+               py::arg("base_cell_size") = 1.0,
+               py::arg("growth_factor") = 2.0)
+          .def("find_nearest_triangles", &PyHierarchicalGrid::find_nearest_triangles,
+               "Find nearest triangle for each point in the point cloud",
+               py::arg("point_cloud"),
+               py::arg("triangles"))
+          .def("get_stats", &PyHierarchicalGrid::get_stats,
+               "Get statistics about the hierarchical grid");
 }

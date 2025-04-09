@@ -1,9 +1,15 @@
 #!/bin/bash
 
-# Define SSH connection details
-# Use direct SSH connection (based on previous testing)
-REMOTE_HOST="root@sshg.jarvislabs.ai" 
-REMOTE_PORT="11014"
+# Extract SSH connection details from instance_address.txt
+CONNECTION_STRING=$(cat instance_address.txt)
+# Parse port and host
+if [[ $CONNECTION_STRING =~ -p[[:space:]]+([0-9]+)[[:space:]]+(.+)$ ]]; then
+    REMOTE_PORT="${BASH_REMATCH[1]}"
+    REMOTE_HOST="${BASH_REMATCH[2]}"
+else
+    echo "Error: Could not parse connection string from instance_address.txt"
+    exit 1
+fi
 REMOTE_DIR="/root/proto_depth"
 
 echo "Setting up environment on $REMOTE_HOST (port $REMOTE_PORT)"
@@ -30,6 +36,10 @@ rsync -avz -e "ssh -o StrictHostKeyChecking=no -p $REMOTE_PORT" \
 # Verify the system already has PyTorch and Kaolin installed
 ssh -o StrictHostKeyChecking=no -p $REMOTE_PORT $REMOTE_HOST << EOF
   cd $REMOTE_DIR
+  
+  # Install Kaolin for PyTorch 2.4.0 and CUDA 121
+  echo "Installing Kaolin for PyTorch 2.4.0 and CUDA 121..."
+  pip install kaolin==0.17.0 -f https://nvidia-kaolin.s3.us-east-2.amazonaws.com/torch-2.4.0_cu121.html
   
   # Verify torch and kaolin are available
   echo "Verifying system PyTorch and Kaolin installations..."

@@ -1,8 +1,15 @@
 #!/bin/bash
 
-# Define SSH connection details - matching your existing scripts
-REMOTE_HOST="root@sshg.jarvislabs.ai"
-REMOTE_PORT="11014"
+# Extract SSH connection details from instance_address.txt
+CONNECTION_STRING=$(cat instance_address.txt)
+# Parse port and host
+if [[ $CONNECTION_STRING =~ -p[[:space:]]+([0-9]+)[[:space:]]+(.+)$ ]]; then
+    REMOTE_PORT="${BASH_REMATCH[1]}"
+    REMOTE_HOST="${BASH_REMATCH[2]}"
+else
+    echo "Error: Could not parse connection string from instance_address.txt"
+    exit 1
+fi
 REMOTE_DIR="/root/proto_depth"
 SSH_OPTS="-o StrictHostKeyChecking=no"
 
@@ -24,6 +31,11 @@ ssh -p $REMOTE_PORT $SSH_OPTS $REMOTE_HOST << EOF
   python -c "import torch; print(f'PyTorch version: {torch.__version__}, CUDA available: {torch.cuda.is_available()}')"
   python -c "import torch; print(f'CUDA version: {torch.version.cuda}')"
   
+  # Install Kaolin for PyTorch 2.4.0 and CUDA 121
+  echo "Installing Kaolin for PyTorch 2.4.0 and CUDA 121..."
+  pip install kaolin==0.17.0 -f https://nvidia-kaolin.s3.us-east-2.amazonaws.com/torch-2.4.0_cu121.html
+  python -c "import kaolin; print(f'Kaolin version: {kaolin.__version__}')"
+  
   # Make sure we have the necessary build tools
   pip install setuptools ninja
   
@@ -36,7 +48,7 @@ ssh -p $REMOTE_PORT $SSH_OPTS $REMOTE_HOST << EOF
   
   # Try importing (will raise an error if build failed)
   cd ../..
-  python -c "from geometry_utils.spatial_hash import create_spatial_hash; print('Spatial hash extension built successfully!')"
+  python -c "from geometry_utils.spatial_hash import HierarchicalGrid; print('Hierarchical grid extension built successfully!')"
 EOF
 
 # Sync built extension back to local machine
