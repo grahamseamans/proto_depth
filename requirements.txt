@@ -1,0 +1,10 @@
+torch>=2.0.0
+trimesh>=3.9.0
+kaolin>=0.15.0
+numpy>=1.20.0
+tqdm>=4.65.0
+Pillow>=9.0.0  # For visualization
+requests>=2.28.0  # For viz server communication
+matplotlib>=3.7.0  # For test visualization
+plyfile>=0.8.1  # For PLY mesh files
+pytorch3d>=0.7.4  # For 3D rendering

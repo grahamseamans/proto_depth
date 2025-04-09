@@ -33,19 +33,26 @@ rsync -avz -e "ssh -o StrictHostKeyChecking=no -p $REMOTE_PORT" \
   --exclude='data' --exclude='__pycache__' --exclude='*.pyc' \
   ./ "$REMOTE_HOST:$REMOTE_DIR/"
 
-# Verify the system already has PyTorch and Kaolin installed
+# Install dependencies and verify installations
 ssh -o StrictHostKeyChecking=no -p $REMOTE_PORT $REMOTE_HOST << EOF
   cd $REMOTE_DIR
   
-  # Install Kaolin for PyTorch 2.4.0 and CUDA 121
-  echo "Installing Kaolin for PyTorch 2.4.0 and CUDA 121..."
+  # Install all dependencies
+  echo "Installing dependencies..."
   pip install kaolin==0.17.0 -f https://nvidia-kaolin.s3.us-east-2.amazonaws.com/torch-2.4.0_cu121.html
+  pip install matplotlib
   
-  # Verify torch and kaolin are available
-  echo "Verifying system PyTorch and Kaolin installations..."
+  # Install our package in development mode
+  echo "Installing package in development mode..."
+  pip install -e .
+  
+  # Verify all installations
+  echo "Verifying installations..."
   python -c "import torch; print(f'PyTorch version: {torch.__version__}, CUDA available: {torch.cuda.is_available()}')"
   python -c "import torch; print(f'CUDA version: {torch.version.cuda}')"
   python -c "import kaolin; print(f'Kaolin version: {kaolin.__version__}')"
+  python -c "import matplotlib; print(f'Matplotlib version: {matplotlib.__version__}')"
+  python -c "import src; print('Package installed successfully')"
   
   echo "Environment setup completed successfully!"
 EOF

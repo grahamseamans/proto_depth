@@ -18,6 +18,8 @@ env/
 
 3d_models/
 
+kaolin/
+
 # Data and large files
 data/
 *.png

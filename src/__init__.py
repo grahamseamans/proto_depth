@@ -1,9 +1,7 @@
 """
-Proto-Depth: A system for encoding depth maps into 3D scene representations
+Proto-Depth: A system for learning 3D scene representations from depth maps
 """
 
-from .model import DepthEncoder
-from .mesh_utils import MeshTransformer
-from .train import train
+from .core import SceneDataset, SceneState
 
-__all__ = ["DepthEncoder", "MeshTransformer", "train"]
+__all__ = ["SceneDataset", "SceneState"]
