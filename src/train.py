@@ -6,7 +6,7 @@ import torch
 import argparse
 from pathlib import Path
 
-from core import SceneState, EnergyOptimizer, SceneDataset
+from core.scene import Scene
 from viz_exporter import VizExporter
 
 
@@ -16,55 +16,51 @@ def train(args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
-    # Initialize dataset
-    dataset = SceneDataset(
-        num_scenes=args.num_scenes,
-        num_frames=args.num_frames,
-        num_objects=args.num_objects,
-        models_dir=args.models_dir,
-        device=device,
-    )
-    print(f"Dataset initialized with {len(dataset)} scenes")
-
     # Initialize visualization
     viz = VizExporter(local_mode=True)
 
-    def visualization_callback(scene_state, energy, iteration):
+    def visualization_callback(scene, loss, iteration):
         """Callback for visualization during optimization"""
         if iteration % args.viz_interval == 0:
-            # TODO: Implement visualization
-            # This will need to:
-            # 1. Get current scene state
-            # 2. Render depth maps
-            # 3. Export to visualization server
-            pass
+            # Get current scene data
+            batch = scene.get_batch()
+
+            # Export visualization data
+            viz.export_visualization_data(
+                epoch=0,  # Single epoch for now
+                batch=iteration,
+                depth_img=batch["depth_maps"][0].unsqueeze(0),  # First frame only
+                points_list=[
+                    target["point_clouds"][0],
+                    batch["point_clouds"][0],
+                ],  # First frame
+                slots=None,  # Not using slots yet
+                prototype_offsets=None,  # Not using prototypes yet
+                prototype_weights=None,
+                scales=scene.scales,
+                transforms=scene.positions,
+                loss=loss,
+            )
 
     # Training loop
-    for scene_idx in range(len(dataset)):
-        print(f"\nOptimizing scene {scene_idx + 1}/{len(dataset)}")
+    for scene_idx in range(args.num_scenes):
+        print(f"\nOptimizing scene {scene_idx + 1}/{args.num_scenes}")
 
-        # Get scene data
-        scene_data = dataset[scene_idx]
-        depth_maps = scene_data["depth_maps"]
-        camera_positions = scene_data["camera_positions"]
-        camera_rotations = scene_data["camera_rotations"]
+        # Create target scene
+        target_scene = Scene(num_objects=args.num_objects, device=device)
+        target = target_scene.get_batch()
 
-        # Initialize scene state
-        scene_state = SceneState(num_objects=args.num_objects, device=device)
-
-        # Initialize optimizer
-        optimizer = EnergyOptimizer(
-            scene_state=scene_state, learning_rate=args.learning_rate
-        )
+        # Create scene to optimize
+        scene = Scene(num_objects=args.num_objects, device=device)
 
         # Optimize scene
-        loss_history = optimizer.optimize(
-            point_cloud=depth_maps,  # TODO: Convert depth maps to point clouds
+        loss_history = scene.optimize(
+            target_points=target["point_clouds"],
             num_iterations=args.num_iterations,
             callback=visualization_callback if not args.no_viz else None,
         )
 
-        print(f"Final energy: {loss_history[-1]:.6f}")
+        print(f"Final loss: {loss_history[-1]:.6f}")
 
 
 def main():
@@ -75,16 +71,7 @@ def main():
         "--num-scenes", type=int, default=100, help="Number of scenes to generate"
     )
     parser.add_argument(
-        "--num-frames", type=int, default=30, help="Number of frames per scene"
-    )
-    parser.add_argument(
         "--num-objects", type=int, default=2, help="Number of objects per scene"
-    )
-    parser.add_argument(
-        "--models-dir",
-        type=str,
-        default="3d_models",
-        help="Directory containing 3D models",
     )
 
     # Optimization parameters
@@ -93,12 +80,6 @@ def main():
         type=int,
         default=1000,
         help="Number of optimization iterations per scene",
-    )
-    parser.add_argument(
-        "--learning-rate",
-        type=float,
-        default=0.01,
-        help="Learning rate for optimization",
     )
 
     # Visualization parameters
@@ -111,9 +92,6 @@ def main():
     )
 
     args = parser.parse_args()
-
-    # Create models directory if it doesn't exist
-    Path(args.models_dir).mkdir(parents=True, exist_ok=True)
 
     train(args)
 

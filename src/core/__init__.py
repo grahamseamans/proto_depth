@@ -1,15 +1,8 @@
 """
-Core components of the 4D reality learning system.
+Core components for 4D reality learning system.
 """
 
-from .state import SceneState, ObjectState, CameraState
-from .optimizer import EnergyOptimizer
-from .dataloader import SceneDataset
+from .scene import Scene
+from .point_cloud import depth_to_pointcloud
 
-__all__ = [
-    "SceneState",
-    "ObjectState",
-    "CameraState",
-    "EnergyOptimizer",
-    "SceneDataset",
-]
+__all__ = ["Scene", "depth_to_pointcloud"]

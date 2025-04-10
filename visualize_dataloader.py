@@ -1,6 +1,6 @@
 """
-Visualize dataloader output on GPU.
-Downloads test models and generates depth map visualizations.
+Visualize scene generation and optimization.
+Downloads test models and generates visualizations.
 """
 
 import torch
@@ -8,9 +8,8 @@ import torchvision
 import matplotlib.pyplot as plt
 from pathlib import Path
 import urllib.request
-import kaolin.io.obj
-import tqdm
-from src.core.point_cloud import depth_to_pointcloud
+
+from core import Scene
 
 
 def download_models():
@@ -25,25 +24,20 @@ def download_models():
         "armadillo": "https://raw.githubusercontent.com/alecjacobson/common-3d-test-models/master/data/armadillo.obj",
     }
 
-    models = {}
     for name, url in model_urls.items():
         path = models_dir / f"{name}.obj"
         if not path.exists():
             print(f"Downloading {name} model...")
             urllib.request.urlretrieve(url, path)
-        print(f"Loading {name} model...")
-        models[name] = kaolin.io.obj.import_mesh(str(path))
-
-    return models
 
 
-def save_depth_maps(depth_maps, scene_data, output_dir):
-    """Save raw depth maps as images and tensors"""
+def save_depth_maps(depth_maps, output_dir):
+    """Save depth maps as images"""
     output_dir = Path(output_dir)
     output_dir.mkdir(exist_ok=True)
 
-    # Save each depth map and point cloud separately
-    for i, (depth_map, camera) in enumerate(zip(depth_maps, scene_data["cameras"])):
+    # Save each depth map
+    for i, depth_map in enumerate(depth_maps):
         # Get raw depth values
         depth = depth_map.squeeze(0)  # Keep on GPU, remove batch dimension
         print(f"\nDepth map {i}:")
@@ -51,14 +45,9 @@ def save_depth_maps(depth_maps, scene_data, output_dir):
         print(f"Range: {depth.min():.2f} to {depth.max():.2f}")
         print(f"Mean: {depth.mean():.2f}")
 
-        # Convert to point cloud
-        points = depth_to_pointcloud(depth, camera)
-        print(f"Point cloud size: {points.shape}")
-        points = points.cpu()  # Move to CPU for saving
-
         # Normalize depth for visualization
-        # Ignore background (0.0) when normalizing
-        mask = depth < 0  # Foreground pixels have negative depth
+        # Ignore background (far plane) when normalizing
+        mask = depth < depth.max()  # Foreground pixels
         if mask.any():
             min_depth = depth[mask].min()
             max_depth = depth[mask].max()
@@ -74,36 +63,30 @@ def save_depth_maps(depth_maps, scene_data, output_dir):
 
         # Save raw values
         torch.save(depth, output_dir / f"depth_{i}_raw.pt")
-        torch.save(points, output_dir / f"points_{i}.pt")
 
 
 def main():
     """Main visualization script"""
     print("Starting visualization...")
 
-    # Download and load models
-    models = download_models()
+    # Download test models
+    download_models()
 
-    from src import SceneDataset
-
-    # Create dataset with minimal setup
+    # Create test scene
     print("Creating test scene...")
-    dataset = SceneDataset(
-        num_scenes=1,  # One test scene
-        num_frames=8,  # 8 viewpoints around scene
+    scene = Scene(
         num_objects=2,  # Two objects
         device="cuda",  # Use GPU
     )
 
     # Get scene data
     print("Getting scene data...")
-    scene_data = dataset[0]
+    batch = scene.get_batch()
 
     # Visualize results
     print("Generating visualizations...")
     save_depth_maps(
-        scene_data["depth_maps"],
-        scene_data,
+        batch["depth_maps"],
         "tests/output",
     )
 

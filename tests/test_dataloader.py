@@ -1,27 +1,25 @@
 """
-Test script for visualizing depth maps and scene layout.
+Test script for visualizing scene generation.
 """
 
+import torch
 import matplotlib.pyplot as plt
 import numpy as np
 from pathlib import Path
 
-from src.core import SceneDataset
+from core import Scene
 
 
 def visualize_scene():
     """Generate and visualize a test scene"""
-    print("Initializing dataset...")
-    dataset = SceneDataset(
-        num_scenes=1,  # One scene
-        num_frames=8,  # 8 views around it
-        num_objects=2,  # Two dragons
-        models_dir=str(Path(__file__).parent.parent / "3d_models"),
+    print("Initializing scene...")
+    scene = Scene(
+        num_objects=2,  # Two objects
     )
 
     print("Getting scene data...")
-    scene_data = dataset[0]
-    depth_maps = scene_data["depth_maps"]
+    batch = scene.get_batch()
+    depth_maps = batch["depth_maps"]
 
     # Plot depth maps in a grid
     print("Plotting depth maps...")
@@ -45,13 +43,18 @@ def visualize_scene():
     print(f"Saved depth maps to {output_dir / 'depth_maps.png'}")
     plt.close()
 
-    # Show camera positions and dragons in 3D
+    # Show camera positions and objects in 3D
     print("Plotting scene layout...")
     fig = plt.figure(figsize=(8, 8))
     ax = fig.add_subplot(111, projection="3d")
 
     # Plot camera positions
-    positions = scene_data["camera_positions"].detach().cpu().numpy()
+    positions = []
+    for camera in scene.cameras:
+        pos = camera.extrinsics.cam_pos().squeeze()
+        positions.append(pos)
+    positions = torch.stack(positions).detach().cpu().numpy()
+
     ax.scatter(
         positions[:, 0],
         positions[:, 1],
@@ -63,21 +66,20 @@ def visualize_scene():
     # Plot camera path
     ax.plot(positions[:, 0], positions[:, 1], positions[:, 2], c="blue", alpha=0.3)
 
-    # Plot dragons
-    state = scene_data["scene_state"]
-    dragon_positions = state.get_object_positions().detach().cpu().numpy()
+    # Plot objects
+    object_positions = scene.positions.detach().cpu().numpy()
     ax.scatter(
-        dragon_positions[:, 0],
-        dragon_positions[:, 1],
-        dragon_positions[:, 2],
+        object_positions[:, 0],
+        object_positions[:, 1],
+        object_positions[:, 2],
         c="red",
         s=100,
-        label="Dragons",
+        label="Objects",
     )
 
-    # Add arrows for dragon orientations
-    rotations = state.get_object_rotations().detach().cpu().numpy()
-    for pos, rot in zip(dragon_positions, rotations):
+    # Add arrows for object orientations
+    rotations = scene.rotations.detach().cpu().numpy()
+    for pos, rot in zip(object_positions, rotations):
         # Just show yaw for now with a small arrow
         yaw = rot[1]  # Assuming [pitch, yaw, roll]
         direction = np.array([np.cos(yaw), 0, np.sin(yaw)])
