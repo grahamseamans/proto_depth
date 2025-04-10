@@ -214,71 +214,102 @@ class Scene:
                 face_features=z_vals.unsqueeze(-1),
             )
 
-            # Keep closest depth
+            # Keep closest depth (remove any extra dimensions)
             depth_map = torch.minimum(depth_map, obj_depth[..., 0])
 
-        return depth_map
+        # Debug shape
+        print(f"render_depth output shape: {depth_map.shape}")
+        return depth_map.squeeze()  # Ensure [H, W]
 
-    def get_batch(self):
+    def get_scene_points(self):
         """
-        Generate synthetic data from current scene state.
-
-        Returns:
-            dict containing:
-                depth_maps: [num_frames, H, W] depth maps
-                point_clouds: [num_frames, N, 3] point clouds
+        Get point clouds from current scene state.
+        Each point cloud is in its camera's local space.
         """
-        depth_maps = []
         point_clouds = []
-
         for camera in self.cameras:
             # Get depth map
             depth_map = self._render_depth(camera)
-            depth_maps.append(depth_map)
 
-            # Convert to point cloud
+            # Debug depth map shape
+            print(f"depth_map shape before pointcloud: {depth_map.shape}")
+
+            # Convert to point cloud (in camera space)
             points = depth_to_pointcloud(depth_map, camera)
+            print(f"points shape after pointcloud: {points.shape}")
+
             point_clouds.append(points)
 
-        return {
-            "depth_maps": torch.stack(depth_maps),  # [num_frames, H, W]
-            "point_clouds": torch.stack(point_clouds),  # [num_frames, N, 3]
-        }
+        return point_clouds
 
-    def _chamfer_loss(self, target_points, predicted_points):
-        """
-        Compute Chamfer distance from target to predicted points.
-        One-directional to handle occlusions - we only care that
-        predicted points explain what we see.
-        """
-        # Compute loss for each frame
-        losses = []
-        for target, predicted in zip(target_points, predicted_points):
-            # Get distances from target points to closest predicted points
-            dist_to_pred = kaolin_metrics.sided_distance(target, predicted)[0]
-            losses.append(dist_to_pred.mean())
+    def _transform_to_world(self, points, camera_idx):
+        """Transform points from camera space to world space using state's camera position"""
+        camera = self.cameras[camera_idx]
+        # Ensure points are [B, N, 3]
+        if points.ndim == 2:
+            points = points.unsqueeze(0)
+        return camera.extrinsics.transform(points)  # Maintains batch dimension
 
-        # Average across frames
-        return torch.stack(losses).mean()
+    def _chamfer_loss(self, target_points):
+        """
+        Compute Chamfer distance between:
+        1. Target point clouds transformed by state's camera positions
+        2. State's belief of where objects are
+
+        Args:
+            target_points: List of point clouds, each in its camera's local space
+        """
+        total_loss = 0
+
+        # For each camera view
+        for i, target in enumerate(target_points):
+            # Transform target points using state's camera position (keep gradients)
+            target_world = self._transform_to_world(target, i)  # [1, N, 3]
+
+            # Get current scene prediction from this camera
+            pred_depth = self._render_depth(self.cameras[i])
+            print(f"pred_depth range: {pred_depth.min():.2f} to {pred_depth.max():.2f}")
+            print(f"pred_depth shape: {pred_depth.shape}")
+            print(f"num valid depths: {(pred_depth < self.cameras[i].far).sum()}")
+
+            pred_points = depth_to_pointcloud(pred_depth, self.cameras[i])  # [1, M, 3]
+            print(f"target_world shape: {target_world.shape}")
+            print(f"pred_points shape: {pred_points.shape}")
+
+            # Ensure both have batch dimension
+            if target_world.ndim == 2:
+                target_world = target_world.unsqueeze(0)
+            if pred_points.ndim == 2:
+                pred_points = pred_points.unsqueeze(0)
+
+            print(
+                f"After unsqueeze - target: {target_world.shape}, pred: {pred_points.shape}"
+            )
+
+            # Make contiguous for CUDA ops
+            target_world = target_world.contiguous()
+            pred_points = pred_points.contiguous()
+
+            # Compute Chamfer distance
+            dist_to_pred = kaolin_metrics.sided_distance(target_world, pred_points)[0]
+            total_loss += dist_to_pred.mean()
+
+        return total_loss / len(target_points)
 
     def step(self, target_points):
         """
         Perform one optimization step.
 
         Args:
-            target_points: [num_frames, N, 3] target point clouds
+            target_points: List of point clouds, each in its camera's local space
 
         Returns:
             loss: Scalar loss value
         """
         self.optimizer.zero_grad()
 
-        # Get current prediction
-        batch = self.get_batch()
-        pred_points = batch["point_clouds"]
-
-        # Compute loss
-        loss = self._chamfer_loss(target_points, pred_points)
+        # Compute loss between transformed target and state
+        loss = self._chamfer_loss(target_points)
 
         # Optimize
         loss.backward()
@@ -295,15 +326,20 @@ class Scene:
         Run optimization for specified iterations.
 
         Args:
-            target_points: [num_frames, N, 3] target point clouds
+            target_points: List of point clouds, each in its camera's local space
             num_iterations: Number of optimization steps
             callback: Optional callback(scene, loss, iter) for visualization
 
         Returns:
             loss_history: List of loss values during optimization
         """
+        print(f"Optimizing scene for {num_iterations} iterations...")
+
         for i in range(num_iterations):
             loss = self.step(target_points)
+
+            if i % 100 == 0:
+                print(f"Iteration {i}: loss = {loss:.6f}")
 
             if callback is not None:
                 callback(self, loss, i)

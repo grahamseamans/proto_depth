@@ -31,52 +31,32 @@ def download_models():
             urllib.request.urlretrieve(url, path)
 
 
-def save_depth_maps(depth_maps, output_dir, scene):
-    """Save depth maps as images"""
+def save_scene_data(scene, output_dir):
+    """Save depth maps and point clouds from each camera view"""
     output_dir = Path(output_dir)
     output_dir.mkdir(exist_ok=True)
 
-    # Save each depth map
-    for i, depth_map in enumerate(depth_maps):
-        # Get raw depth values
-        depth = depth_map  # Already on GPU, no batch dimension
-        print(f"\nDepth map {i}:")
-        print(f"Shape: {depth.shape}")
-        print(f"Range: {depth.min():.2f} to {depth.max():.2f}")
-        print(f"Mean: {depth.mean():.2f}")
+    # Get point clouds from each camera
+    point_clouds = []
+    for i, camera in enumerate(scene.cameras):
+        # Get depth map
+        depth_map = scene._render_depth(camera)
+        print(f"\nCamera {i}:")
+        print(f"Depth range: {depth_map.min():.2f} to {depth_map.max():.2f}")
 
-        # Normalize depth for visualization
-        # Ignore background (far plane) when normalizing
-        mask = depth < depth.max()  # Foreground pixels
-        if mask.any():
-            min_depth = depth[mask].min()
-            max_depth = depth[mask].max()
-            depth_norm = torch.zeros_like(depth)
-            depth_norm[mask] = (depth[mask] - min_depth) / (
-                max_depth - min_depth + 1e-8
-            )
-        else:
-            depth_norm = torch.zeros_like(depth)
+        # Save raw depth map
+        torch.save(depth_map, output_dir / f"depth_{i}_raw.pt")
 
-        # Save as PNG
-        torchvision.utils.save_image(depth_norm, output_dir / f"depth_{i}.png")
+        # Convert to point cloud using our actual point cloud code
+        from src.core.point_cloud import depth_to_pointcloud
 
-        # Save raw values
-        torch.save(depth, output_dir / f"depth_{i}_raw.pt")
+        points = depth_to_pointcloud(depth_map, camera)
+        point_clouds.append(points)
 
-    # Save combined visualization
-    fig, axes = plt.subplots(2, 4, figsize=(16, 8))
-    for i, depth_map in enumerate(depth_maps):
-        row = i // 4
-        col = i % 4
-        axes[row, col].imshow(
-            depth_map.squeeze().detach().cpu().numpy(), cmap="viridis"
-        )
-        axes[row, col].axis("off")
-        axes[row, col].set_title(f"View {i}")
-    plt.tight_layout()
-    plt.savefig(output_dir / "depth_maps.png")
-    plt.close()
+        # Save point cloud
+        points = points.squeeze().detach().cpu()
+        print(f"Points shape: {points.shape}")
+        torch.save(points, output_dir / f"points_{i}.pt")
 
     # Save scene layout visualization
     fig = plt.figure(figsize=(8, 8))
@@ -116,6 +96,8 @@ def save_depth_maps(depth_maps, output_dir, scene):
     plt.savefig(output_dir / "scene_layout.png")
     plt.close()
 
+    return point_clouds
+
 
 def main():
     """Main visualization script"""
@@ -131,17 +113,9 @@ def main():
         device="cuda" if torch.cuda.is_available() else "cpu",  # Use GPU if available
     )
 
-    # Get scene data
-    print("Getting scene data...")
-    batch = scene.get_batch()
-
-    # Visualize results
-    print("Generating visualizations...")
-    save_depth_maps(
-        batch["depth_maps"],
-        "tests/output",
-        scene,
-    )
+    # Save scene data (depth maps and point clouds)
+    print("Saving scene data...")
+    save_scene_data(scene, "tests/output")
 
     print("Done! Results saved to tests/output/")
 

@@ -8,63 +8,79 @@ import numpy as np
 from pathlib import Path
 
 
+def create_point_cloud(points, color=[1, 0, 0]):
+    """Create Open3D point cloud with depth coloring"""
+    pcd = o3d.geometry.PointCloud()
+    pcd.points = o3d.utility.Vector3dVector(points)
+
+    # Color points by depth (Z coordinate)
+    z = points[:, 2]  # Depth values
+    colors = np.zeros((len(points), 3))
+    # Map depth to color (red=near, blue=far)
+    colors[:, 0] = (z - z.min()) / (z.max() - z.min())  # Red channel
+    colors[:, 2] = 1 - colors[:, 0]  # Blue channel
+    pcd.colors = o3d.utility.Vector3dVector(colors)
+
+    return pcd
+
+
 def visualize_point_clouds():
-    """Visualize point clouds from saved depth maps"""
+    """Visualize point clouds from each camera"""
     output_dir = Path("tests/output")
 
-    # Load depth maps and convert to point clouds
-    o3d_clouds = []
-    for i in range(8):  # 8 views
-        # Load raw depth map
-        depth = torch.load(
-            output_dir / f"depth_{i}_raw.pt", map_location=torch.device("cpu")
+    # Load point clouds
+    clouds = []
+    for i in range(8):
+        # Load points
+        points = torch.load(
+            output_dir / f"points_{i}.pt", map_location=torch.device("cpu")
         )
-        # Remove batch dimension and get valid points
-        depth = depth.squeeze()  # [H, W]
-        mask = depth < depth.max()
-        valid_depths = depth[mask].detach().cpu().numpy()
+        points = points.squeeze().numpy()  # [N, 3]
 
-        # Create pixel coordinates
-        h, w = depth.shape
-        y, x = torch.meshgrid(torch.arange(h), torch.arange(w))
-        x = x[mask].cpu().numpy()
-        y = y[mask].cpu().numpy()
-
-        # Calculate grid position (3x3 grid)
-        grid_row = i // 3  # 3 rows
-        grid_col = i % 3  # 3 columns
-
-        # Scale points to local space and offset to grid position
-        points = np.stack(
+        # Calculate grid position (2x4 grid)
+        grid_row = i // 4  # 2 rows
+        grid_col = i % 4  # 4 columns
+        offset = np.array(
             [
-                (x / w) + (grid_col * 1.5),  # Scale to [0,1] and offset by column
-                -(y / h) + (-grid_row * 1.5),  # Scale to [0,1], flip, and offset by row
-                -valid_depths * 0.1,  # Scale depth to be smaller
-            ],
-            axis=1,
+                grid_col * 10,  # X offset (10 units between columns)
+                -grid_row * 10,  # Y offset (10 units between rows)
+                0,  # No Z offset
+            ]
         )
 
-        # Create Open3D point cloud
-        pcd = o3d.geometry.PointCloud()
-        pcd.points = o3d.utility.Vector3dVector(points)
+        # Offset points to grid position
+        points = points + offset
 
-        # Color points by view index
-        colors = np.zeros((len(points), 3))
-        colors[:, i % 3] = 1.0  # Cycle through RGB
-        pcd.colors = o3d.utility.Vector3dVector(colors)
+        # Create point cloud
+        pcd = create_point_cloud(points)
 
-        o3d_clouds.append(pcd)
+        # Add coordinate frame at grid position
+        frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.5)
+        frame_points = np.asarray(frame.vertices) + offset
+        frame.vertices = o3d.utility.Vector3dVector(frame_points)
 
-    # Combine all point clouds
-    combined = o3d.geometry.PointCloud()
-    for pcd in o3d_clouds:
-        combined += pcd
+        # Group point cloud and frame
+        clouds.extend([pcd, frame])
 
-    # Add coordinate frame
-    frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=1.0)
+        # Print camera info
+        if i < 4:
+            # First diagonal: (-5,3,-5) to (5,3,5)
+            t = -5 + (10 / 3) * i
+            print(f"Camera {i}: ({t:.1f}, 3, {t:.1f})")
+        else:
+            # Second diagonal: (-5,3,5) to (5,3,-5)
+            t = -5 + (10 / 3) * (i - 4)
+            print(f"Camera {i}: ({t:.1f}, 3, {-t:.1f})")
 
-    # Visualize
-    o3d.visualization.draw_geometries([combined, frame])
+    # Visualize all point clouds
+    o3d.visualization.draw_geometries(
+        clouds,
+        window_name="Camera Views",
+        width=1600,
+        height=900,
+        left=50,
+        top=50,
+    )
 
 
 def main():
