@@ -10,6 +10,7 @@ from pathlib import Path
 import urllib.request
 import kaolin.io.obj
 import tqdm
+from src.core.point_cloud import depth_to_pointcloud
 
 
 def download_models():
@@ -36,21 +37,26 @@ def download_models():
     return models
 
 
-def save_depth_maps(depth_maps, output_dir):
+def save_depth_maps(depth_maps, scene_data, output_dir):
     """Save raw depth maps as images and tensors"""
     output_dir = Path(output_dir)
     output_dir.mkdir(exist_ok=True)
 
-    # Save each depth map separately
-    for i, depth_map in enumerate(depth_maps):
+    # Save each depth map and point cloud separately
+    for i, (depth_map, camera) in enumerate(zip(depth_maps, scene_data["cameras"])):
         # Get raw depth values
-        depth = depth_map.squeeze(0).cpu()  # Remove batch dimension
+        depth = depth_map.squeeze(0)  # Keep on GPU, remove batch dimension
         print(f"\nDepth map {i}:")
         print(f"Shape: {depth.shape}")
         print(f"Range: {depth.min():.2f} to {depth.max():.2f}")
         print(f"Mean: {depth.mean():.2f}")
 
-        # Normalize to [0, 1] for visualization
+        # Convert to point cloud
+        points = depth_to_pointcloud(depth, camera)
+        print(f"Point cloud size: {points.shape}")
+        points = points.cpu()  # Move to CPU for saving
+
+        # Normalize depth for visualization
         # Ignore background (0.0) when normalizing
         mask = depth < 0  # Foreground pixels have negative depth
         if mask.any():
@@ -68,6 +74,7 @@ def save_depth_maps(depth_maps, output_dir):
 
         # Save raw values
         torch.save(depth, output_dir / f"depth_{i}_raw.pt")
+        torch.save(points, output_dir / f"points_{i}.pt")
 
 
 def main():
@@ -96,6 +103,7 @@ def main():
     print("Generating visualizations...")
     save_depth_maps(
         scene_data["depth_maps"],
+        scene_data,
         "tests/output",
     )
 

@@ -18,7 +18,9 @@ env/
 
 3d_models/
 
-kaolin/
+# kaolin/
+
+*.pt
 
 # Data and large files
 data/

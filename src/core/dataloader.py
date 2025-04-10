@@ -299,4 +299,5 @@ class SceneDataset(Dataset):
             "camera_positions": camera_positions,  # [num_frames, 3]
             "camera_rotations": camera_rotations,  # [num_frames, 3]
             "scene_state": scene_state,  # Ground truth state
+            "cameras": cameras,  # List of Kaolin Camera objects
         }
