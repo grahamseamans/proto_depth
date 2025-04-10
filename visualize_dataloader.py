@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 import urllib.request
 
-from core import Scene
+from src import Scene
 
 
 def download_models():
@@ -31,7 +31,7 @@ def download_models():
             urllib.request.urlretrieve(url, path)
 
 
-def save_depth_maps(depth_maps, output_dir):
+def save_depth_maps(depth_maps, output_dir, scene):
     """Save depth maps as images"""
     output_dir = Path(output_dir)
     output_dir.mkdir(exist_ok=True)
@@ -39,7 +39,7 @@ def save_depth_maps(depth_maps, output_dir):
     # Save each depth map
     for i, depth_map in enumerate(depth_maps):
         # Get raw depth values
-        depth = depth_map.squeeze(0)  # Keep on GPU, remove batch dimension
+        depth = depth_map  # Already on GPU, no batch dimension
         print(f"\nDepth map {i}:")
         print(f"Shape: {depth.shape}")
         print(f"Range: {depth.min():.2f} to {depth.max():.2f}")
@@ -64,6 +64,58 @@ def save_depth_maps(depth_maps, output_dir):
         # Save raw values
         torch.save(depth, output_dir / f"depth_{i}_raw.pt")
 
+    # Save combined visualization
+    fig, axes = plt.subplots(2, 4, figsize=(16, 8))
+    for i, depth_map in enumerate(depth_maps):
+        row = i // 4
+        col = i % 4
+        axes[row, col].imshow(
+            depth_map.squeeze().detach().cpu().numpy(), cmap="viridis"
+        )
+        axes[row, col].axis("off")
+        axes[row, col].set_title(f"View {i}")
+    plt.tight_layout()
+    plt.savefig(output_dir / "depth_maps.png")
+    plt.close()
+
+    # Save scene layout visualization
+    fig = plt.figure(figsize=(8, 8))
+    ax = fig.add_subplot(111, projection="3d")
+
+    # Plot camera positions
+    camera_positions = torch.stack(
+        [cam.extrinsics.cam_pos().squeeze() for cam in scene.cameras]
+    )
+    ax.scatter(
+        camera_positions[:, 0].cpu(),
+        camera_positions[:, 2].cpu(),
+        camera_positions[:, 1].cpu(),
+        c="blue",
+        marker="^",
+        s=100,
+        label="Cameras",
+    )
+
+    # Plot object positions
+    positions = scene.positions.detach()
+    ax.scatter(
+        positions[:, 0].cpu(),
+        positions[:, 2].cpu(),
+        positions[:, 1].cpu(),
+        c="red",
+        marker="o",
+        s=100,
+        label="Objects",
+    )
+
+    # Add labels and legend
+    ax.set_xlabel("X")
+    ax.set_ylabel("Z")
+    ax.set_zlabel("Y")
+    ax.legend()
+    plt.savefig(output_dir / "scene_layout.png")
+    plt.close()
+
 
 def main():
     """Main visualization script"""
@@ -76,7 +128,7 @@ def main():
     print("Creating test scene...")
     scene = Scene(
         num_objects=2,  # Two objects
-        device="cuda",  # Use GPU
+        device="cuda" if torch.cuda.is_available() else "cpu",  # Use GPU if available
     )
 
     # Get scene data
@@ -88,6 +140,7 @@ def main():
     save_depth_maps(
         batch["depth_maps"],
         "tests/output",
+        scene,
     )
 
     print("Done! Results saved to tests/output/")

@@ -21,7 +21,7 @@ echo "Syncing code to remote machine..."
 rsync -avz -e "ssh -p $REMOTE_PORT $SSH_OPTS -i $SSH_KEY" \
   --exclude='data' --exclude='.git' --exclude='.venv' --exclude='.conda' \
   --exclude='__pycache__' --exclude='*.pyc' --exclude='progress_images' \
-  ./ "$REMOTE_HOST:$REMOTE_DIR/"
+  ./ "root@$REMOTE_HOST:$REMOTE_DIR/"
 
 # Build the CUDA extension on the remote machine
 echo "Building CUDA extension on remote machine..."

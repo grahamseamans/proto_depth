@@ -32,13 +32,14 @@ echo "Syncing code to remote machine..."
 rsync -avz -e "ssh -p $REMOTE_PORT $SSH_OPTS -i $SSH_KEY" \
   --exclude='data' --exclude='.git' --exclude='.venv' --exclude='.conda' \
   --exclude='__pycache__' --exclude='*.pyc' --exclude='progress_images' \
-  ./ "$REMOTE_HOST:$REMOTE_DIR/"
+  --exclude='kaolin' \
+  ./ "root@$REMOTE_HOST:$REMOTE_DIR/"
 
 # Run the script on the remote machine
 echo "Running script..."
-ssh -p $REMOTE_PORT $SSH_OPTS -i $SSH_KEY $REMOTE_HOST << EOF
+ssh -t root@$REMOTE_HOST -p $REMOTE_PORT -i $SSH_KEY << EOF
   cd $REMOTE_DIR
-  python $SCRIPT_PATH
+  PYTHONPATH=$REMOTE_DIR python $SCRIPT_PATH
 EOF
 
 # Sync results back to local machine
@@ -46,6 +47,6 @@ echo "Syncing results back to local machine..."
 mkdir -p tests/output
 
 rsync -avz -e "ssh -p $REMOTE_PORT $SSH_OPTS -i $SSH_KEY" \
-  "$REMOTE_HOST:$REMOTE_DIR/tests/output/" "./tests/output/"
+  "root@$REMOTE_HOST:$REMOTE_DIR/tests/output/" "./tests/output/"
 
 echo "Run completed successfully!"

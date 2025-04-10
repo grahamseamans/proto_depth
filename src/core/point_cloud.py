@@ -17,24 +17,42 @@ def depth_to_pointcloud(depth_map: torch.Tensor, camera: Camera) -> torch.Tensor
         points: [N, 3] tensor of points in world space, where N is the number
                of valid depth values (not at far plane)
     """
-    H, W = depth_map.shape
+    H, W = depth_map.shape[:2]  # Handle [H, W] or [H, W, 1]
+    depth_map = depth_map.squeeze()  # Remove any extra dimensions
 
-    # Get rays for all pixels
-    ray_origins, ray_dirs = camera.generate_rays()  # [H*W, 3]
+    # Generate pixel coordinates in camera space
+    i, j = torch.meshgrid(
+        torch.arange(H, device=depth_map.device),
+        torch.arange(W, device=depth_map.device),
+    )
 
-    # Reshape rays to match depth map
-    ray_dirs = ray_dirs.reshape(H, W, 3)  # [H, W, 3]
-    ray_origins = ray_origins.reshape(H, W, 3)  # [H, W, 3]
+    # Convert to NDC space [-1, 1]
+    x = (2.0 * j.float() / W) - 1.0
+    y = (2.0 * i.float() / H) - 1.0
 
     # Get valid depths (ignore far plane and background)
-    mask = (depth_map != camera.far) & (depth_map < 0)  # [H, W]
+    mask = (depth_map != camera.far) & (depth_map > 0)  # [H, W]
     valid_depths = depth_map[mask]  # [N]
 
-    # Get valid rays
-    valid_rays = ray_dirs[mask]  # [N, 3]
-    valid_origins = ray_origins[mask]  # [N, 3]
+    # Handle case with no valid points
+    if not valid_depths.numel():
+        return torch.zeros((0, 3), device=depth_map.device)
 
-    # Scale rays by depth to get points in camera space
-    points = valid_origins + valid_rays * valid_depths.unsqueeze(-1)  # [N, 3]
+    # Get valid pixel coordinates
+    valid_x = x[mask]  # [N]
+    valid_y = y[mask]  # [N]
+
+    # Convert to 3D points in camera space
+    points = torch.stack(
+        [
+            valid_x * valid_depths,  # X = x * depth
+            -valid_y * valid_depths,  # Y = -y * depth (flip Y to match OpenGL)
+            -valid_depths,  # Z = -depth (forward is -Z in camera space)
+        ],
+        dim=-1,
+    )  # [N, 3]
+
+    # Transform points from camera to world space
+    points = camera.extrinsics.transform(points)  # [N, 3]
 
     return points

@@ -38,9 +38,18 @@ Position, objects, and understanding emerge naturally from observing reality ove
    - Scale to more complex scenes
 
 5. **Loss Function**
-   - Chamfer distance between:
-     - Point cloud from depth frames
-     - Point cloud from current state
+   - Two key components:
+     1. Ground truth: Point clouds from cameras
+        * Each point cloud is in its camera's local space
+        * Camera is at origin, facing forward (-Z)
+        * This is the natural way depth data is captured
+     2. State: Our model's understanding of object and camera positions
+   - Process:
+     - Transform camera point clouds using state's believed camera positions
+     - Compute Chamfer distance between:
+       * Camera point clouds transformed by state's camera positions
+       * State's belief of where objects are
+     - Backpropagate through camera positions and object parameters
    - Direct gradient path to state parameters
    - No intermediate neural network layers
 
