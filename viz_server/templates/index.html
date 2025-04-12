@@ -8,9 +8,6 @@
     <!-- Tailwind CSS and DaisyUI -->
     <link href="https://cdn.jsdelivr.net/npm/daisyui@3.9.4/dist/full.css" rel="stylesheet" type="text/css" />
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Three.js - Using CDN with global scope -->
-    <script src="https://cdn.jsdelivr.net/npm/three@0.137.0/build/three.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.137.0/examples/js/controls/OrbitControls.js"></script>
     <!-- Chart.js for visualizing weights -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
     <style>
@@ -255,6 +252,13 @@
         </div>
     </div>
 
+    <!-- Error/Warning Overlay -->
+    <div id="error-overlay"
+        class="fixed top-4 right-4 z-50 bg-red-100 border border-red-400 text-red-800 px-4 py-2 rounded shadow-lg hidden"
+        style="max-width: 400px;">
+        <!-- Errors and warnings will be injected here -->
+    </div>
+
     <!-- Loading Indicator -->
     <div id="loading" class="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50 hidden">
         <div class="bg-white p-4 rounded-lg shadow-lg">
@@ -276,12 +280,22 @@
         </div>
     </div>
 
-    <!-- JavaScript Files - Loaded in dependency order -->
-    <script src="{{ url_for('static', filename='js/modules/state.js') }}"></script>
-    <script src="{{ url_for('static', filename='js/modules/elements.js') }}"></script>
-    <script src="{{ url_for('static', filename='js/modules/visualization.js') }}"></script>
-    <script src="{{ url_for('static', filename='js/modules/ui.js') }}"></script>
-    <script src="{{ url_for('static', filename='js/modules/main.js') }}"></script>
+    <!-- JavaScript Files - Loaded in dependency order as ES modules -->
+    <script type="importmap">
+    {
+        "imports": {
+            "three": "https://unpkg.com/three@0.137.0/build/three.module.js",
+            "three/addons/": "https://unpkg.com/three@0.137.0/examples/jsm/"
+        }
+    }
+    </script>
+    <script type="module" src="{{ url_for('static', filename='js/modules/visualization/core.js') }}"></script>
+    <script type="module" src="{{ url_for('static', filename='js/modules/visualization/point_clouds.js') }}"></script>
+    <script type="module" src="{{ url_for('static', filename='js/modules/visualization/prototypes.js') }}"></script>
+    <script type="module" src="{{ url_for('static', filename='js/modules/visualization/frustums.js') }}"></script>
+    <script type="module" src="{{ url_for('static', filename='js/modules/manager.js') }}"></script>
+    <script type="module" src="{{ url_for('static', filename='js/modules/ui.js') }}"></script>
+    <script type="module" src="{{ url_for('static', filename='js/modules/main.js') }}"></script>
 
     <!-- Theme Toggle Script -->
     <script>

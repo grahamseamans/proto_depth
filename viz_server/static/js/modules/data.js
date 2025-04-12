@@ -1,5 +1,5 @@
 /**
- * Data loading and API interactions for the visualization application
+ * Data loading and run/epoch/frame management for the visualization app.
  */
 
 /**

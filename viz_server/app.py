@@ -32,37 +32,6 @@ def index():
     return render_template("index.html")
 
 
-@app.route("/api/runs")
-def get_runs():
-    """Get a list of all available runs"""
-    run_dirs = glob.glob(os.path.join(app.config["UPLOAD_FOLDER"], "run_*"))
-    runs = []
-
-    for run_dir in run_dirs:
-        metadata_path = os.path.join(run_dir, "run_metadata.json")
-        if os.path.exists(metadata_path):
-            try:
-                with open(metadata_path, "r") as f:
-                    metadata = json.load(f)
-
-                run_id = os.path.basename(run_dir)
-                runs.append(
-                    {
-                        "id": run_id,
-                        "timestamp": metadata.get("timestamp", ""),
-                        "num_frames": metadata.get("num_frames", 0),
-                        "num_objects": metadata.get("num_objects", 0),
-                        "description": metadata.get("description", ""),
-                    }
-                )
-            except Exception as e:
-                print(f"Error loading metadata for {run_dir}: {e}")
-
-    # Sort runs by timestamp (newest first)
-    runs.sort(key=lambda x: parse_timestamp(x.get("timestamp", 0)), reverse=True)
-    return jsonify(runs)
-
-
 @app.route("/api/run/<run_id>/run_metadata.json")
 def get_run_metadata(run_id):
     """Get metadata for a specific run"""

@@ -1,8 +1,8 @@
 /**
  * Initialize DOM element references
  */
+export const elements = {};
 
-// Get references to DOM elements
 elements.epochSlider = document.getElementById('epoch-slider');
 elements.epochDisplay = document.getElementById('epoch-display');
 elements.resetViewBtn = document.getElementById('reset-view-btn');

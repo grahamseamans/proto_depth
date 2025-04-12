@@ -2,6 +2,9 @@
  * UI controls and event handlers
  */
 
+// Import validator
+import { validateFrameData } from "./validator.js";
+
 // Initialize UI elements
 function initUI() {
     try {
@@ -107,6 +110,27 @@ async function onTimeSliderChange() {
     await loadFrameData(frame);
 }
 
+function showErrorOverlay(errors, warnings) {
+    const overlay = document.getElementById("error-overlay");
+    if (!overlay) return;
+    if ((!errors || errors.length === 0) && (!warnings || warnings.length === 0)) {
+        overlay.classList.add("hidden");
+        overlay.innerHTML = "";
+        return;
+    }
+    let html = "";
+    if (errors && errors.length > 0) {
+        html += `<div class="font-bold mb-1">Errors:</div><ul class="mb-2">` +
+            errors.map(e => `<li>• ${e}</li>`).join("") + "</ul>";
+    }
+    if (warnings && warnings.length > 0) {
+        html += `<div class="font-bold mb-1">Warnings:</div><ul>` +
+            warnings.map(w => `<li>• ${w}</li>`).join("") + "</ul>";
+    }
+    overlay.innerHTML = html;
+    overlay.classList.remove("hidden");
+}
+
 // Data Loading Functions
 async function loadRuns() {
     try {
@@ -179,6 +203,10 @@ async function loadFrameData(frame) {
         const response = await fetch(`/api/run/${runId}/iter/iter_${String(iteration).padStart(4, '0')}/frame_${String(frame).padStart(4, '0')}.json`);
         const frameData = await response.json();
         console.log('Frame data:', frameData);
+
+        // Validate frame data and show errors/warnings
+        const { errors, warnings, summary } = validateFrameData(frameData);
+        showErrorOverlay(errors, warnings);
 
         // Transform data into expected format
         const transformedData = {
@@ -257,8 +285,8 @@ async function loadFrameData(frame) {
         renderTimeVaryingScene([transformedData], false);
     } catch (error) {
         console.error('Error loading frame data:', error);
+        showErrorOverlay([error.message], []);
     }
 }
 
-// Export functions
-window.initUI = initUI;
+export { initUI };
