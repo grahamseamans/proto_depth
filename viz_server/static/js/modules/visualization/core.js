@@ -2,7 +2,7 @@
  * Core visualization functions for Three.js setup and management
  */
 import * as THREE from 'three';
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 /**
  * Create a basic Three.js scene with default lighting
@@ -115,4 +115,4 @@ export function setupVisualization(container, options = {}) {
     });
 
     return { scene, camera, renderer, controls };
-} 
+}

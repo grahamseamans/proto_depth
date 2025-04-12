@@ -1,30 +1,54 @@
 /**
- * Pure functions for camera frustum visualization
+ * Camera frustum visualization
  */
 import * as THREE from 'three';
 
 /**
- * Add a camera frustum to a Three.js scene
- * @param {THREE.Scene} scene - The scene to add the frustum to
- * @param {Object} cameraData - Camera parameters
+ * Create a camera frustum visualization
+ * @param {Array|THREE.Vector3} position - Position of the camera
+ * @param {Array|THREE.Vector3} rotation - Rotation of the camera (euler angles)
  * @param {Object} options - Visualization options
  * @param {number} options.color - Color of the frustum (default: 0x0000ff)
  * @param {number} options.opacity - Opacity of the frustum (default: 0.3)
+ * @param {number} options.fov - Field of view in degrees (default: 60)
+ * @param {number} options.aspect - Aspect ratio (default: 1.0)
+ * @param {number} options.near - Near plane distance (default: 0.1)
+ * @param {number} options.far - Far plane distance (default: 1.0)
  * @returns {THREE.LineSegments} The created frustum visualization
  */
-export function addFrustumToScene(scene, cameraData, options = {}) {
+export function createFrustum(position, rotation, options = {}) {
+    // Convert position array to Vector3 if needed
+    if (Array.isArray(position)) {
+        position = new THREE.Vector3(...position);
+    }
+
+    // Convert rotation array to direction vector
+    let direction;
+    if (Array.isArray(rotation)) {
+        // Create direction vector from euler angles
+        const euler = new THREE.Euler(rotation[0], rotation[1], rotation[2]);
+        direction = new THREE.Vector3(0, 0, -1).applyEuler(euler);
+    } else {
+        // Assume rotation is already a direction vector
+        direction = rotation;
+    }
     const {
         color = 0x0000ff,
-        opacity = 0.3
+        opacity = 0.3,
+        fov = 60,
+        aspect = 1.0,
+        near = 0.1,
+        far = 1.0
     } = options;
 
-    // Extract camera parameters
-    const { position, direction, up, fov, aspect, near, far } = cameraData;
-
     // Calculate frustum corners
-    const halfHeight = Math.tan(fov * 0.5) * far;
+    const halfHeight = Math.tan(fov * Math.PI / 360) * far;
     const halfWidth = halfHeight * aspect;
 
+    // Create up vector (assuming Y-up)
+    const up = new THREE.Vector3(0, 1, 0);
+
+    // Calculate frustum corners
     const farCenter = new THREE.Vector3().copy(position).add(
         new THREE.Vector3().copy(direction).multiplyScalar(far)
     );
@@ -55,7 +79,7 @@ export function addFrustumToScene(scene, cameraData, options = {}) {
     // Create geometry
     const geometry = new THREE.BufferGeometry();
     const vertices = new Float32Array([
-        // Near plane
+        // Near plane (just show the position point)
         ...position.toArray(),
         ...position.toArray(),
         ...position.toArray(),
@@ -89,9 +113,5 @@ export function addFrustumToScene(scene, cameraData, options = {}) {
         opacity
     });
 
-    // Create and add to scene
-    const frustum = new THREE.LineSegments(geometry, material);
-    scene.add(frustum);
-
-    return frustum;
-} 
+    return new THREE.LineSegments(geometry, material);
+}

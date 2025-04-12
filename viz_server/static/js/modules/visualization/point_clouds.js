@@ -1,8 +1,6 @@
 /**
  * Visualization logic for rendering point clouds and time-varying scenes.
  */
-import { scenes, cameras, controls, objects, colors } from "../../state.js";
-import { createCameraFrustum } from "./frustum.js";
 import * as THREE from 'three';
 
 /**
@@ -17,21 +15,12 @@ export function transformToThreeSpace(points) {
  * @param {Array} points - Array of [x, y, z] points.
  * @param {Object} options - { color, size, opacity, scene }
  */
-export function renderPointCloud(points, options = {}) {
+export function renderPointCloud(scene, points, options = {}) {
     const {
         color = 0xff0000,
         size = 0.02,
-        opacity = 0.7,
-        scene = scenes.unified
+        opacity = 0.7
     } = options;
-
-    // Remove previous point clouds from the scene if needed
-    if (objects.pointClouds) {
-        objects.pointClouds.forEach(cloud => {
-            if (cloud.parent) cloud.parent.remove(cloud);
-        });
-    }
-    objects.pointClouds = [];
 
     // Filter out invalid points
     const validPoints = points.filter(point =>
@@ -58,7 +47,7 @@ export function renderPointCloud(points, options = {}) {
 
     const pointCloud = new THREE.Points(geometry, material);
     scene.add(pointCloud);
-    objects.pointClouds.push(pointCloud);
+    return pointCloud;
 }
 
 /**
@@ -93,10 +82,6 @@ export function createPointCloud(points, options = {}) {
     return new THREE.Points(geometry, material);
 }
 
-/**
- * Pure functions for point cloud visualization
- */
-import * as THREE from 'three';
 
 /**
  * Add a point cloud to a Three.js scene

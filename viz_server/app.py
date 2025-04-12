@@ -26,6 +26,32 @@ def parse_timestamp(ts):
         return 0
 
 
+@app.route("/api/runs")
+def get_runs():
+    """Get a list of all available runs"""
+    runs = []
+    for run_dir in sorted(glob.glob(os.path.join(app.config["UPLOAD_FOLDER"], "*"))):
+        if not os.path.isdir(run_dir):
+            continue
+
+        run_id = os.path.basename(run_dir)
+        metadata_path = os.path.join(run_dir, "run_metadata.json")
+
+        # Get timestamp from metadata if available
+        timestamp = 0
+        if os.path.exists(metadata_path):
+            try:
+                with open(metadata_path, "r") as f:
+                    metadata = json.load(f)
+                    timestamp = parse_timestamp(metadata.get("timestamp", 0))
+            except Exception as e:
+                print(f"Error loading metadata for {run_dir}: {e}")
+
+        runs.append({"id": run_id, "timestamp": timestamp})
+
+    return jsonify(sorted(runs, key=lambda x: x["timestamp"], reverse=True))
+
+
 @app.route("/")
 def index():
     """Render the main visualization page"""
