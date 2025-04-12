@@ -204,47 +204,58 @@ class VizExporter:
         except Exception as e:
             print(f"Error exporting visualization data: {e}")
 
-    def _save_local(
+    def save_frame_json(
         self,
-        epoch_id,
-        batch_id,
-        depth_img_pil,
-        point_cloud,
-        slot_data_list,
-        prototypes_data,
-        batch_metadata,
+        out_path,
+        true_camera_positions,
+        true_camera_rotations,
+        pred_camera_positions,
+        pred_camera_rotations,
+        true_object_positions,
+        true_object_rotations,
+        true_object_scales,
+        pred_object_positions,
+        pred_object_rotations,
+        pred_object_scales,
+        point_clouds,  # List of N arrays, each Kx3, in camera-local space
     ):
-        """Save visualization data to local directory."""
-        # Create directory structure
-        epoch_dir = os.path.join(self.data_dir, "epochs", epoch_id)
-        batch_dir = os.path.join(epoch_dir, batch_id)
-        slots_dir = os.path.join(batch_dir, "slots")
-        prototypes_dir = os.path.join(batch_dir, "prototypes")
+        """
+        Write a single frame's data to a JSON file in the new spec.
 
-        os.makedirs(epoch_dir, exist_ok=True)
-        os.makedirs(batch_dir, exist_ok=True)
-        os.makedirs(slots_dir, exist_ok=True)
-        os.makedirs(prototypes_dir, exist_ok=True)
+        Args:
+            out_path: Path to write the JSON file.
+            *_positions, *_rotations, *_scales: Lists/arrays as described in DATA_FORMAT.md.
+            point_clouds: List of N arrays (camera-local point clouds).
+        """
+        data = {
+            "true": {
+                "camera": {
+                    "positions": true_camera_positions,
+                    "rotations": true_camera_rotations,
+                },
+                "objects": {
+                    "positions": true_object_positions,
+                    "rotations": true_object_rotations,
+                    "scales": true_object_scales,
+                },
+            },
+            "pred": {
+                "camera": {
+                    "positions": pred_camera_positions,
+                    "rotations": pred_camera_rotations,
+                },
+                "objects": {
+                    "positions": pred_object_positions,
+                    "rotations": pred_object_rotations,
+                    "scales": pred_object_scales,
+                },
+            },
+            "point_clouds": point_clouds,
+        }
 
-        # Save depth image
-        depth_img_pil.save(os.path.join(batch_dir, "depth_img.png"))
-
-        # Save point cloud
-        with open(os.path.join(batch_dir, "point_cloud.json"), "w") as f:
-            json.dump({"points": point_cloud.tolist()}, f, indent=2)
-
-        # Save slots
-        for i, slot in enumerate(slot_data_list):
-            with open(os.path.join(slots_dir, f"slot_{i + 1}.json"), "w") as f:
-                json.dump(slot, f, indent=2)
-
-        # Save prototype data
-        with open(os.path.join(prototypes_dir, "prototypes.json"), "w") as f:
-            json.dump(prototypes_data, f, indent=2)
-
-        # Save batch metadata
-        with open(os.path.join(batch_dir, "metadata.json"), "w") as f:
-            json.dump(batch_metadata, f, indent=2)
+        os.makedirs(os.path.dirname(out_path), exist_ok=True)
+        with open(out_path, "w") as f:
+            json.dump(data, f, indent=2)
 
     def _send_to_server(
         self,

@@ -7,48 +7,21 @@ import * as THREE from 'three';
  * Convert from camera space (-Z forward) to Three.js space (+Z forward)
  */
 export function transformToThreeSpace(points) {
-    return points.map(point => [point[0], point[1], -point[2]]);
-}
-
-/**
- * Render a generic point cloud in a given scene.
- * @param {Array} points - Array of [x, y, z] points.
- * @param {Object} options - { color, size, opacity, scene }
- */
-export function renderPointCloud(scene, points, options = {}) {
-    const {
-        color = 0xff0000,
-        size = 0.02,
-        opacity = 0.7
-    } = options;
-
-    // Filter out invalid points
-    const validPoints = points.filter(point =>
-        point.every(coord => typeof coord === "number" && !isNaN(coord) && isFinite(coord))
-    );
-    if (validPoints.length === 0) {
-        console.warn("No valid points to render");
-        return;
+    if (!Array.isArray(points)) {
+        console.warn('transformToThreeSpace: input is not an array');
+        return [];
     }
-
-    // Transform points to Three.js coordinate system
-    const worldPoints = transformToThreeSpace(validPoints);
-
-    const geometry = new THREE.BufferGeometry();
-    const vertices = new Float32Array(worldPoints.flat());
-    geometry.setAttribute("position", new THREE.BufferAttribute(vertices, 3));
-
-    const material = new THREE.PointsMaterial({
-        color,
-        size,
-        transparent: true,
-        opacity
-    });
-
-    const pointCloud = new THREE.Points(geometry, material);
-    scene.add(pointCloud);
-    return pointCloud;
+    const transformed = points.map(point => {
+        if (!Array.isArray(point) || point.length !== 3) {
+            console.warn('transformToThreeSpace: skipping invalid point:', point);
+            return null;
+        }
+        return [point[0], point[1], -point[2]];
+    }).filter(point => point !== null);
+    console.log(`transformToThreeSpace: transformed ${transformed.length} points`);
+    return transformed;
 }
+
 
 /**
  * Create a point cloud from an array of points
@@ -106,9 +79,13 @@ export function addPointCloudToScene(scene, points, options = {}) {
     );
 
     if (validPoints.length === 0) {
-        console.warn("No valid points to render");
+        console.warn(`No valid points to render. Input had ${points.length} points, all were invalid.`);
+        if (points.length > 0) {
+            console.warn("First invalid point:", points[0]);
+        }
         return null;
     }
+    console.log(`Rendering ${validPoints.length} valid points out of ${points.length} total`);
 
     // Create geometry
     const geometry = new THREE.BufferGeometry();

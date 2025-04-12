@@ -3,7 +3,7 @@
  */
 import * as THREE from 'three';
 import { setupVisualization } from './visualization/core.js';
-import { addPointCloudToScene } from './visualization/point_clouds.js';
+import { addPointCloudToScene, transformToThreeSpace } from './visualization/point_clouds.js';
 import { createFrustum } from './visualization/frustum.js';
 import { createMeshes, loadObjFile } from './visualization/meshes.js';
 
@@ -90,10 +90,27 @@ export class VisualizationManager {
             // Clear current scene
             this.clearScene();
 
-            // Add point clouds
-            if (frameData.true?.point_clouds) {
-                frameData.true.point_clouds.forEach(points => {
-                    const cloud = this.addPointCloud(points, {
+            // Add point clouds (new format: top-level key)
+            if (Array.isArray(frameData.point_clouds)) {
+                frameData.point_clouds.forEach((pointCloud, i) => {
+                    // Unwrap the extra array level - pointCloud is array[array[x,y,z]]
+                    if (!Array.isArray(pointCloud) || pointCloud.length === 0) {
+                        console.warn(`Point cloud ${i} is empty or not an array`);
+                        return;
+                    }
+
+                    // Get the inner array of points
+                    const points = pointCloud[0];
+                    if (!Array.isArray(points)) {
+                        console.warn(`Point cloud ${i} inner data is not an array`);
+                        return;
+                    }
+
+                    console.log(`Point cloud ${i} before transform:`, points);
+                    // Transform points to Three.js coordinate system
+                    const transformedPoints = transformToThreeSpace(points);
+                    console.log(`Point cloud ${i} after transform:`, transformedPoints);
+                    const cloud = this.addPointCloud(transformedPoints, {
                         color: 0x00ff00,
                         opacity: 0.7
                     });
@@ -103,23 +120,11 @@ export class VisualizationManager {
                     }
                 });
             }
-            if (frameData.pred?.point_clouds) {
-                frameData.pred.point_clouds.forEach(points => {
-                    const cloud = this.addPointCloud(points, {
-                        color: 0xff0000,
-                        opacity: 0.7
-                    });
-                    if (cloud) {
-                        cloud.visible = this.showPointClouds;
-                        this.pointClouds.push(cloud);
-                    }
-                });
-            }
 
-            // Add cameras/frustums
-            if (frameData.cameras) {
-                frameData.cameras.positions.forEach((pos, i) => {
-                    const rot = frameData.cameras.rotations[i];
+            // Add cameras/frustums (new format: true.camera and pred.camera)
+            if (frameData.true?.camera) {
+                frameData.true.camera.positions.forEach((pos, i) => {
+                    const rot = frameData.true.camera.rotations[i];
                     // True camera (blue)
                     const trueFrustum = this.addFrustum(pos, rot, {
                         color: 0x0000ff,
@@ -127,7 +132,11 @@ export class VisualizationManager {
                     });
                     trueFrustum.visible = this.showFrustums;
                     this.frustums.push(trueFrustum);
-
+                });
+            }
+            if (frameData.pred?.camera) {
+                frameData.pred.camera.positions.forEach((pos, i) => {
+                    const rot = frameData.pred.camera.rotations[i];
                     // Predicted camera (red)
                     const predFrustum = this.addFrustum(pos, rot, {
                         color: 0xff0000,
@@ -138,27 +147,27 @@ export class VisualizationManager {
                 });
             }
 
-            // Add object meshes if bunny data is loaded
+            // Add object meshes if bunny data is loaded (new format: true.objects and pred.objects)
             if (this.bunnyMeshData) {
                 const objects = [];
-                if (frameData.true?.positions) {
-                    frameData.true.positions.forEach((pos, i) => {
+                if (frameData.true?.objects) {
+                    frameData.true.objects.positions.forEach((pos, i) => {
                         objects.push({
                             data: this.bunnyMeshData,
                             position: pos,
-                            rotation: frameData.true.rotations[i],
-                            scale: frameData.true.scales[i],
+                            rotation: frameData.true.objects.rotations[i],
+                            scale: frameData.true.objects.scales[i],
                             isTrue: true
                         });
                     });
                 }
-                if (frameData.pred?.positions) {
-                    frameData.pred.positions.forEach((pos, i) => {
+                if (frameData.pred?.objects) {
+                    frameData.pred.objects.positions.forEach((pos, i) => {
                         objects.push({
                             data: this.bunnyMeshData,
                             position: pos,
-                            rotation: frameData.pred.rotations[i],
-                            scale: frameData.pred.scales[i],
+                            rotation: frameData.pred.objects.rotations[i],
+                            scale: frameData.pred.objects.scales[i],
                             isTrue: false
                         });
                     });
