@@ -17,33 +17,44 @@ import * as THREE from 'three';
  * @returns {THREE.LineSegments} The created frustum visualization
  */
 export function createFrustum(position, rotation, options = {}) {
+    console.log('createFrustum input:', {
+        position: Array.isArray(position) ? position : position.toArray(),
+        rotation: Array.isArray(rotation) ? rotation : rotation.toArray(),
+        options
+    });
+
     // Convert position array to Vector3 if needed
     if (Array.isArray(position)) {
         position = new THREE.Vector3(...position);
     }
+    console.log('Position vector:', position.toArray());
 
     // Convert rotation array to direction vector
     let direction;
     if (Array.isArray(rotation)) {
         // Create direction vector from euler angles
         const euler = new THREE.Euler(rotation[0], rotation[1], rotation[2]);
-        direction = new THREE.Vector3(0, 0, -1).applyEuler(euler);
+        console.log('Euler angles:', [euler.x, euler.y, euler.z]);
+        direction = new THREE.Vector3(0, 0, 1).applyEuler(euler);
     } else {
         // Assume rotation is already a direction vector
         direction = rotation;
     }
+    console.log('Direction vector:', direction.toArray());
     const {
         color = 0x0000ff,
         opacity = 0.3,
         fov = 60,
         aspect = 1.0,
         near = 0.1,
-        far = 1.0
+        far = 0.5,
+        lineWidth = 0.005  // Width of the frustum lines
     } = options;
 
     // Calculate frustum corners
     const halfHeight = Math.tan(fov * Math.PI / 360) * far;
     const halfWidth = halfHeight * aspect;
+    console.log('Frustum dimensions:', { halfHeight, halfWidth, far });
 
     // Create up vector (assuming Y-up)
     const up = new THREE.Vector3(0, 1, 0);
@@ -52,9 +63,15 @@ export function createFrustum(position, rotation, options = {}) {
     const farCenter = new THREE.Vector3().copy(position).add(
         new THREE.Vector3().copy(direction).multiplyScalar(far)
     );
+    console.log('Far center:', farCenter.toArray());
 
     const right = new THREE.Vector3().crossVectors(direction, up).normalize();
     const upVec = new THREE.Vector3().crossVectors(right, direction).normalize();
+    console.log('Basis vectors:', {
+        right: right.toArray(),
+        up: upVec.toArray(),
+        direction: direction.toArray()
+    });
 
     const farTopLeft = new THREE.Vector3()
         .copy(farCenter)
@@ -76,42 +93,99 @@ export function createFrustum(position, rotation, options = {}) {
         .add(right.clone().multiplyScalar(halfWidth))
         .add(upVec.clone().multiplyScalar(-halfHeight));
 
-    // Create geometry
+    console.log('Frustum corners:', {
+        farTopLeft: farTopLeft.toArray(),
+        farTopRight: farTopRight.toArray(),
+        farBottomLeft: farBottomLeft.toArray(),
+        farBottomRight: farBottomRight.toArray()
+    });
+
+    // Create geometry for the frustum outline - proper pyramid shape
     const geometry = new THREE.BufferGeometry();
-    const vertices = new Float32Array([
-        // Near plane (just show the position point)
-        ...position.toArray(),
-        ...position.toArray(),
-        ...position.toArray(),
-        ...position.toArray(),
-
-        // Far plane
-        ...farTopLeft.toArray(),
-        ...farTopRight.toArray(),
-        ...farBottomRight.toArray(),
-        ...farBottomLeft.toArray(),
-
-        // Connections
+    const outlineVertices = new Float32Array([
+        // Lines from camera position to far corners (pyramid edges)
         ...position.toArray(), ...farTopLeft.toArray(),
         ...position.toArray(), ...farTopRight.toArray(),
         ...position.toArray(), ...farBottomRight.toArray(),
         ...position.toArray(), ...farBottomLeft.toArray(),
 
-        // Far plane connections
+        // Far plane rectangle (base of pyramid)
         ...farTopLeft.toArray(), ...farTopRight.toArray(),
         ...farTopRight.toArray(), ...farBottomRight.toArray(),
         ...farBottomRight.toArray(), ...farBottomLeft.toArray(),
-        ...farBottomLeft.toArray(), ...farTopLeft.toArray()
+        ...farBottomLeft.toArray(), ...farTopLeft.toArray(),
     ]);
 
-    geometry.setAttribute('position', new THREE.BufferAttribute(vertices, 3));
+    geometry.setAttribute('position', new THREE.BufferAttribute(outlineVertices, 3));
 
-    // Create material
-    const material = new THREE.LineBasicMaterial({
-        color,
-        transparent: true,
-        opacity
+    console.log('Original vertices:', Array.from(outlineVertices));
+
+    // Create tube geometry directly from our line segments
+    const tubeGeometry = new THREE.BufferGeometry();
+    const tubeVertices = [];
+    const tubeIndices = [];
+
+    // For each line segment (every 6 values in outlineVertices is a line: start[xyz] end[xyz])
+    for (let i = 0; i < outlineVertices.length; i += 6) {
+        const start = new THREE.Vector3(
+            outlineVertices[i],
+            outlineVertices[i + 1],
+            outlineVertices[i + 2]
+        );
+        const end = new THREE.Vector3(
+            outlineVertices[i + 3],
+            outlineVertices[i + 4],
+            outlineVertices[i + 5]
+        );
+        const direction = end.clone().sub(start).normalize();
+        const perpendicular = new THREE.Vector3().crossVectors(direction, new THREE.Vector3(0, 1, 0)).normalize();
+        if (perpendicular.lengthSq() === 0) {
+            perpendicular.set(1, 0, 0);
+        }
+        const perpendicular2 = new THREE.Vector3().crossVectors(direction, perpendicular).normalize();
+
+        // Create four vertices around each line point
+        const baseIndex = tubeVertices.length / 3;
+        for (const point of [start, end]) {
+            for (const offset of [
+                perpendicular.clone().multiplyScalar(lineWidth),
+                perpendicular2.clone().multiplyScalar(lineWidth),
+                perpendicular.clone().multiplyScalar(-lineWidth),
+                perpendicular2.clone().multiplyScalar(-lineWidth)
+            ]) {
+                const vertex = point.clone().add(offset);
+                tubeVertices.push(vertex.x, vertex.y, vertex.z);
+            }
+        }
+
+        // Create triangles for the tube segment
+        const faces = [
+            0, 1, 4, 4, 1, 5,  // top
+            1, 2, 5, 5, 2, 6,  // right
+            2, 3, 6, 6, 3, 7,  // bottom
+            3, 0, 7, 7, 0, 4   // left
+        ];
+        for (const index of faces) {
+            tubeIndices.push(baseIndex + index);
+        }
+    }
+
+    tubeGeometry.setAttribute('position', new THREE.Float32BufferAttribute(tubeVertices, 3));
+    tubeGeometry.setIndex(tubeIndices);
+    tubeGeometry.computeVertexNormals();
+
+    console.log('Final tube geometry:', {
+        vertices: Array.from(tubeVertices),
+        indices: Array.from(tubeIndices)
     });
 
-    return new THREE.LineSegments(geometry, material);
+    // Create material and mesh
+    const material = new THREE.MeshBasicMaterial({
+        color,
+        transparent: true,
+        opacity,
+        side: THREE.DoubleSide
+    });
+
+    return new THREE.Mesh(tubeGeometry, material);
 }

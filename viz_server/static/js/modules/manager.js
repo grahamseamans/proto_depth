@@ -90,8 +90,40 @@ export class VisualizationManager {
             // Clear current scene
             this.clearScene();
 
+            // Transform points by camera position/rotation
+            function transformPointsByCamera(points, cameraPos, cameraRot) {
+                console.log('Camera transform inputs:', {
+                    position: cameraPos,
+                    rotation: cameraRot
+                });
+
+                // Create rotation matrix from Euler angles
+                const rotMatrix = new THREE.Matrix4();
+                rotMatrix.makeRotationFromEuler(new THREE.Euler(cameraRot[0], cameraRot[1], cameraRot[2]));
+                console.log('Rotation matrix:', rotMatrix.elements);
+
+                // Create translation matrix
+                const transMatrix = new THREE.Matrix4();
+                transMatrix.makeTranslation(cameraPos[0], cameraPos[1], cameraPos[2]);
+                console.log('Translation matrix:', transMatrix.elements);
+
+                // Combine rotation and translation (rotation first, then translation)
+                const transform = new THREE.Matrix4();
+                transform.multiplyMatrices(transMatrix, rotMatrix);
+                console.log('Combined transform matrix:', transform.elements);
+
+                // Apply transform to each point
+                console.log('First point before transform:', points[0]);
+                return points.map(point => {
+                    const vec = new THREE.Vector3(point[0], point[1], point[2]);
+                    vec.applyMatrix4(transform);
+                    return [vec.x, vec.y, vec.z];
+                });
+            }
+
             // Add point clouds (new format: top-level key)
             if (Array.isArray(frameData.point_clouds)) {
+                // Each point cloud needs to be shown twice - once with true camera transform, once with pred
                 frameData.point_clouds.forEach((pointCloud, i) => {
                     // Unwrap the extra array level - pointCloud is array[array[x,y,z]]
                     if (!Array.isArray(pointCloud) || pointCloud.length === 0) {
@@ -106,17 +138,63 @@ export class VisualizationManager {
                         return;
                     }
 
-                    console.log(`Point cloud ${i} before transform:`, points);
-                    // Transform points to Three.js coordinate system
-                    const transformedPoints = transformToThreeSpace(points);
-                    console.log(`Point cloud ${i} after transform:`, transformedPoints);
-                    const cloud = this.addPointCloud(transformedPoints, {
-                        color: 0x00ff00,
-                        opacity: 0.7
+                    // Get camera transforms
+                    const trueCameraPos = frameData.true?.camera?.positions[i];
+                    const trueCameraRot = frameData.true?.camera?.rotations[i];
+                    const predCameraPos = frameData.pred?.camera?.positions[i];
+                    const predCameraRot = frameData.pred?.camera?.rotations[i];
+
+                    if (!trueCameraPos || !trueCameraRot || !predCameraPos || !predCameraRot) {
+                        console.warn(`Missing camera data for point cloud ${i}`);
+                        return;
+                    }
+
+                    console.log(`Camera ${i} transforms:`, {
+                        true: {
+                            pos: trueCameraPos,
+                            rot: trueCameraRot
+                        },
+                        pred: {
+                            pos: predCameraPos,
+                            rot: predCameraRot
+                        }
                     });
-                    if (cloud) {
-                        cloud.visible = this.showPointClouds;
-                        this.pointClouds.push(cloud);
+
+                    // Transform points to Three.js coordinate system
+                    const threePoints = transformToThreeSpace(points);
+                    console.log(`Point cloud ${i} after Three.js transform:`, {
+                        numPoints: threePoints.length,
+                        firstPoint: threePoints[0],
+                        lastPoint: threePoints[threePoints.length - 1]
+                    });
+
+                    // Show point cloud in true camera space (green)
+                    const trueWorldPoints = transformPointsByCamera(threePoints, trueCameraPos, trueCameraRot);
+                    console.log(`Point cloud ${i} after true camera transform:`, {
+                        numPoints: trueWorldPoints.length,
+                        firstPoint: trueWorldPoints[0],
+                        lastPoint: trueWorldPoints[trueWorldPoints.length - 1]
+                    });
+                    const trueCloud = this.addPointCloud(trueWorldPoints, {
+                        color: 0x00ff00,
+                        opacity: 0.7,
+                        size: 0.01
+                    });
+                    if (trueCloud) {
+                        trueCloud.visible = this.showPointClouds;
+                        this.pointClouds.push(trueCloud);
+                    }
+
+                    // Show point cloud in predicted camera space (red)
+                    const predWorldPoints = transformPointsByCamera(threePoints, predCameraPos, predCameraRot);
+                    const predCloud = this.addPointCloud(predWorldPoints, {
+                        color: 0xff0000,
+                        opacity: 0.7,
+                        size: 0.01
+                    });
+                    if (predCloud) {
+                        predCloud.visible = this.showPointClouds;
+                        this.pointClouds.push(predCloud);
                     }
                 });
             }
