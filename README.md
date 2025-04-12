@@ -49,6 +49,7 @@ Position, objects, and understanding emerge naturally from observing reality ove
      - Compute Chamfer distance between:
        * Camera point clouds transformed by state's camera positions
        * State's belief of where objects are
+     - Use sided_distance since cameras only see visible surfaces
      - Backpropagate through camera positions and object parameters
    - Direct gradient path to state parameters
    - No intermediate neural network layers

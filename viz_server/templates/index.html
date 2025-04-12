@@ -81,6 +81,7 @@
                     class="menu menu-sm dropdown-content mt-3 z-[1] p-2 shadow bg-base-100 rounded-box w-52">
                     <li><a id="nav-main-mobile" class="active">Main View</a></li>
                     <li><a id="nav-prototypes-mobile">Prototypes</a></li>
+                    <li><a id="nav-cameras-mobile">Camera Views</a></li>
                 </ul>
             </div>
             <a class="btn btn-ghost text-xl">3D Scene Visualization</a>
@@ -89,6 +90,7 @@
             <ul class="menu menu-horizontal px-1">
                 <li><a id="nav-main" class="active">Main View</a></li>
                 <li><a id="nav-prototypes">Prototypes</a></li>
+                <li><a id="nav-cameras">Camera Views</a></li>
             </ul>
         </div>
         <div class="navbar-end">
@@ -112,16 +114,49 @@
         </div>
     </div>
 
-    <!-- Epoch Controls -->
-    <div class="bg-base-200 p-4 flex flex-wrap items-center gap-4">
-        <div class="flex-none">
-            <span id="epoch-display" class="text-lg font-medium">Epoch: 0/0</span>
+    <!-- Controls -->
+    <div class="bg-base-200 p-4">
+        <!-- Epoch Controls -->
+        <div class="flex flex-wrap items-center gap-4 mb-4">
+            <div class="flex-none">
+                <span id="epoch-display" class="text-lg font-medium">Iteration: 0/0</span>
+            </div>
+            <div class="flex-1 mx-4">
+                <input type="range" id="epoch-slider" min="0" max="100" value="0" class="range" disabled />
+            </div>
+            <div class="flex-none">
+                <button id="reset-view-btn" class="btn btn-primary">Reset View</button>
+            </div>
         </div>
-        <div class="flex-1 mx-4">
-            <input type="range" id="epoch-slider" min="0" max="100" value="0" class="range" disabled />
-        </div>
-        <div class="flex-none">
-            <button id="reset-view-btn" class="btn btn-primary">Reset View</button>
+
+        <!-- Visualization Controls -->
+        <div class="flex flex-wrap items-center gap-4">
+            <div class="form-control">
+                <label class="label cursor-pointer gap-2">
+                    <span class="label-text">Show Point Clouds</span>
+                    <input type="checkbox" class="toggle toggle-primary" id="toggle-pointcloud" checked />
+                </label>
+            </div>
+            <div class="form-control">
+                <label class="label cursor-pointer gap-2">
+                    <span class="label-text">Show Camera Frustums</span>
+                    <input type="checkbox" class="toggle toggle-primary" id="toggle-cameras" checked />
+                </label>
+            </div>
+            <div class="form-control">
+                <label class="label cursor-pointer gap-2">
+                    <span class="label-text">Show Objects</span>
+                    <input type="checkbox" class="toggle toggle-primary" id="toggle-objects" checked />
+                </label>
+            </div>
+            <div class="divider divider-horizontal"></div>
+            <div class="form-control flex-1">
+                <label class="label cursor-pointer gap-2">
+                    <span class="label-text">Frame</span>
+                    <input type="range" id="time-slider" min="0" max="29" value="0" class="range flex-1" />
+                    <span id="time-display" class="ml-2">0/29</span>
+                </label>
+            </div>
         </div>
     </div>
 
@@ -132,31 +167,10 @@
             <div class="card bg-base-100 shadow-xl h-full">
                 <div class="card-body p-2 h-full">
                     <div class="flex justify-between items-center">
-                        <h2 class="card-title">Integrated 3D Visualization</h2>
-                        <div class="flex gap-2">
-                            <div class="form-control">
-                                <label class="label cursor-pointer gap-2">
-                                    <span class="label-text">Point Cloud</span>
-                                    <input type="checkbox" class="toggle toggle-primary" id="toggle-pointcloud"
-                                        checked />
-                                </label>
-                            </div>
-                            <button id="show-depth-image" class="btn btn-sm btn-primary">Show Depth Image</button>
-                        </div>
+                        <h2 class="card-title">Scene Visualization</h2>
                     </div>
                     <div id="unified-container" class="panel-3d h-full">
                         <!-- Three.js will render here -->
-                        <div id="weight-chart" class="weight-chart hidden">
-                            <!-- Weight chart will be rendered here -->
-                        </div>
-                    </div>
-                    <div class="flex flex-wrap gap-4 mt-2">
-                        <div class="flex-grow">
-                            <label class="label"><span class="label-text">Slots</span></label>
-                            <div id="slot-toggles" class="flex flex-wrap gap-2">
-                                <!-- Slot toggle buttons will be added here -->
-                            </div>
-                        </div>
                     </div>
                 </div>
             </div>
@@ -200,6 +214,45 @@
                 </div>
             </div>
         </div>
+
+        <!-- Camera Views (initially hidden) -->
+        <div id="cameras-view" class="visualization-container hidden">
+            <div class="flex flex-row h-full gap-4">
+                <!-- Left Column: Camera Navigation (scrollable) -->
+                <div class="w-48 h-full flex-shrink-0">
+                    <div class="card bg-base-100 shadow-xl h-full">
+                        <div class="card-body p-2 flex flex-col h-full">
+                            <h2 class="card-title">Camera Views</h2>
+                            <p class="text-sm">Select a camera to view</p>
+
+                            <!-- Scrollable container for camera buttons -->
+                            <div id="camera-navigation" class="flex-grow overflow-y-auto pr-1">
+                                <!-- Camera buttons will be created here dynamically -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right Column: Camera 3D Viewport (non-scrollable) -->
+                <div class="flex-grow h-full flex flex-col">
+                    <div class="card bg-base-100 shadow-xl h-full">
+                        <div class="card-body p-2 flex flex-col h-full">
+                            <div class="flex justify-between items-center">
+                                <h2 class="card-title">Camera View</h2>
+                                <div id="camera-view-controls" class="flex gap-2">
+                                    <!-- Any controls for the camera view -->
+                                </div>
+                            </div>
+
+                            <!-- Non-scrollable container for the 3D viewport -->
+                            <div id="camera-viewport" class="flex-grow relative">
+                                <!-- 3D renderer will be attached here -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- Loading Indicator -->
@@ -226,12 +279,8 @@
     <!-- JavaScript Files - Loaded in dependency order -->
     <script src="{{ url_for('static', filename='js/modules/state.js') }}"></script>
     <script src="{{ url_for('static', filename='js/modules/elements.js') }}"></script>
-    <script src="{{ url_for('static', filename='js/modules/charts.js') }}"></script>
-    <script src="{{ url_for('static', filename='js/modules/renderers.js') }}"></script>
     <script src="{{ url_for('static', filename='js/modules/visualization.js') }}"></script>
     <script src="{{ url_for('static', filename='js/modules/ui.js') }}"></script>
-    <script src="{{ url_for('static', filename='js/modules/data.js') }}"></script>
-    <script src="{{ url_for('static', filename='js/modules/init.js') }}"></script>
     <script src="{{ url_for('static', filename='js/modules/main.js') }}"></script>
 
     <!-- Theme Toggle Script -->

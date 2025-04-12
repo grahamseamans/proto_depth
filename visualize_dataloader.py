@@ -1,34 +1,13 @@
 """
 Visualize scene generation and optimization.
-Downloads test models and generates visualizations.
+Generates visualizations of the scene layout and point clouds.
 """
 
 import torch
-import torchvision
 import matplotlib.pyplot as plt
 from pathlib import Path
-import urllib.request
 
 from src import Scene
-
-
-def download_models():
-    """Download test models in OBJ format"""
-    models_dir = Path("3d_models")
-    models_dir.mkdir(exist_ok=True)
-
-    # URLs from alecjacobson's common-3d-test-models repo
-    model_urls = {
-        "bunny": "https://raw.githubusercontent.com/alecjacobson/common-3d-test-models/master/data/stanford-bunny.obj",
-        "spot": "https://raw.githubusercontent.com/alecjacobson/common-3d-test-models/master/data/spot.obj",
-        "armadillo": "https://raw.githubusercontent.com/alecjacobson/common-3d-test-models/master/data/armadillo.obj",
-    }
-
-    for name, url in model_urls.items():
-        path = models_dir / f"{name}.obj"
-        if not path.exists():
-            print(f"Downloading {name} model...")
-            urllib.request.urlretrieve(url, path)
 
 
 def save_scene_data(scene, output_dir):
@@ -36,35 +15,22 @@ def save_scene_data(scene, output_dir):
     output_dir = Path(output_dir)
     output_dir.mkdir(exist_ok=True)
 
-    # Get point clouds from each camera
-    point_clouds = []
-    for i, camera in enumerate(scene.cameras):
-        # Get depth map
-        depth_map = scene._render_depth(camera)
-        print(f"\nCamera {i}:")
-        print(f"Depth range: {depth_map.min():.2f} to {depth_map.max():.2f}")
+    # Get point clouds from true scene state
+    point_clouds = scene.get_ground_truth_clouds()
 
-        # Save raw depth map
-        torch.save(depth_map, output_dir / f"depth_{i}_raw.pt")
-
-        # Convert to point cloud using our actual point cloud code
-        from src.core.point_cloud import depth_to_pointcloud
-
-        points = depth_to_pointcloud(depth_map, camera)
-        point_clouds.append(points)
-
-        # Save point cloud
-        points = points.squeeze().detach().cpu()
-        print(f"Points shape: {points.shape}")
+    # Save point clouds
+    for i, points in enumerate(point_clouds):
+        points = points.squeeze().cpu()
+        print(f"\nCamera {i} points shape: {points.shape}")
         torch.save(points, output_dir / f"points_{i}.pt")
 
     # Save scene layout visualization
     fig = plt.figure(figsize=(8, 8))
     ax = fig.add_subplot(111, projection="3d")
 
-    # Plot camera positions
+    # Plot true camera positions
     camera_positions = torch.stack(
-        [cam.extrinsics.cam_pos().squeeze() for cam in scene.cameras]
+        [cam.extrinsics.cam_pos().squeeze() for cam in scene.true_cameras]
     )
     ax.scatter(
         camera_positions[:, 0].cpu(),
@@ -76,8 +42,8 @@ def save_scene_data(scene, output_dir):
         label="Cameras",
     )
 
-    # Plot object positions
-    positions = scene.positions.detach()
+    # Plot true object positions
+    positions = scene.true_positions
     ax.scatter(
         positions[:, 0].cpu(),
         positions[:, 2].cpu(),
@@ -102,9 +68,6 @@ def save_scene_data(scene, output_dir):
 def main():
     """Main visualization script"""
     print("Starting visualization...")
-
-    # Download test models
-    download_models()
 
     # Create test scene
     print("Creating test scene...")

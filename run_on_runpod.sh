@@ -44,9 +44,16 @@ EOF
 
 # Sync results back to local machine
 echo "Syncing results back to local machine..."
-mkdir -p tests/output
 
+# Create local directories
+mkdir -p tests/output
+mkdir -p viz_server/data
+
+# Sync both output directories
 rsync -avz -e "ssh -p $REMOTE_PORT $SSH_OPTS -i $SSH_KEY" \
   "root@$REMOTE_HOST:$REMOTE_DIR/tests/output/" "./tests/output/"
+
+rsync -avz -e "ssh -p $REMOTE_PORT $SSH_OPTS -i $SSH_KEY" \
+  "root@$REMOTE_HOST:$REMOTE_DIR/viz_server/data/" "./viz_server/data/"
 
 echo "Run completed successfully!"

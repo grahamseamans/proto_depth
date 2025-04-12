@@ -1,255 +1,264 @@
 /**
- * UI event handlers and interaction for the visualization application
+ * UI controls and event handlers
  */
 
-// Function reference holders to avoid circular dependencies
-let _loadRun, _loadEpoch;
-
-function setDataHandlers(loadRunFn, loadEpochFn) {
-    _loadRun = loadRunFn;
-    _loadEpoch = loadEpochFn;
-}
-
-/**
- * Initialize UI event listeners
- */
+// Initialize UI elements
 function initUI() {
-    // Run selector
-    elements.runSelector.addEventListener('change', async (e) => {
-        const runId = e.target.value;
-        if (runId) {
-            await loadRun(runId);
-        }
-    });
+    try {
+        // Get references to all UI elements
+        const elementIds = {
+            'epoch-slider': 'epochSlider',
+            'epoch-display': 'epochDisplay',
+            'reset-view-btn': 'resetViewBtn',
+            'run-selector': 'runSelector',
+            'toggle-pointcloud': 'togglePointCloud',
+            'toggle-cameras': 'toggleCameras',
+            'toggle-objects': 'toggleObjects',
+            'time-slider': 'timeSlider',
+            'time-display': 'timeDisplay'
+        };
 
-    // Epoch slider
-    elements.epochSlider.addEventListener('input', async (e) => {
-        const epochIndex = parseInt(e.target.value);
-        if (state.epochs && epochIndex >= 0 && epochIndex < state.epochs.length) {
-            state.currentEpochIndex = epochIndex;
-            await loadEpoch(state.epochs[epochIndex]);
-        }
-    });
-
-    // Reset view button
-    elements.resetViewBtn.addEventListener('click', () => {
-        resetAllViews();
-    });
-
-    // Navigation tabs
-    elements.navMain.addEventListener('click', () => switchTab('main'));
-    elements.navPrototypes.addEventListener('click', () => switchTab('prototypes'));
-    elements.navMainMobile.addEventListener('click', () => switchTab('main'));
-    elements.navPrototypesMobile.addEventListener('click', () => switchTab('prototypes'));
-
-    // Toggle point cloud visibility
-    elements.togglePointCloud.addEventListener('change', (e) => {
-        if (objects.pointCloud) {
-            objects.pointCloud.visible = e.target.checked;
-        }
-    });
-
-    // Show depth image button
-    elements.showDepthImage.addEventListener('click', () => {
-        showDepthImageModal();
-    });
-
-    // Close depth image modal
-    elements.closeDepthModal.addEventListener('click', () => {
-        hideDepthImageModal();
-    });
-
-    // Window resize listener
-    window.addEventListener('resize', () => {
-        resizeRenderers();
-    });
-}
-
-/**
- * Show the depth image in a modal
- */
-function showDepthImageModal() {
-    if (state.currentRun && state.currentEpoch && state.currentBatch) {
-        const runId = state.currentRun;
-        const epochId = state.currentEpoch.id;
-        const batchId = state.currentBatch;
-
-        if (state.batchData && state.batchData.has_depth_image) {
-            const imgUrl = `/api/run/${runId}/epoch/${epochId}/batch/${batchId}/depth_img.png`;
-            elements.modalDepthContainer.innerHTML = `<img src="${imgUrl}" alt="Depth Image" style="max-width: 100%;">`;
-        } else {
-            elements.modalDepthContainer.innerHTML = '<div class="text-center p-4">No depth image available</div>';
-        }
-    }
-
-    // Show the modal
-    elements.depthImageModal.classList.add('modal-open');
-}
-
-/**
- * Hide the depth image modal
- */
-function hideDepthImageModal() {
-    elements.depthImageModal.classList.remove('modal-open');
-}
-
-/**
- * Switch between main and prototypes tabs
- */
-function switchTab(tab) {
-    // Update active tab styling
-    elements.navMain.classList.remove('active');
-    elements.navPrototypes.classList.remove('active');
-    elements.navMainMobile.classList.remove('active');
-    elements.navPrototypesMobile.classList.remove('active');
-
-    if (tab === 'main') {
-        elements.navMain.classList.add('active');
-        elements.navMainMobile.classList.add('active');
-        elements.mainView.classList.remove('hidden');
-        elements.prototypesView.classList.add('hidden');
-
-        // Ensure the main renderer is properly preserved/restored
-        if (renderers.unified && renderers.unified.domElement) {
-            // Make sure it's still in the DOM
-            if (!renderers.unified.domElement.parentNode) {
-                elements.unifiedContainer.appendChild(renderers.unified.domElement);
-                console.log("Re-attached main renderer to DOM");
+        // Get elements and store in global elements object
+        for (const [id, key] of Object.entries(elementIds)) {
+            const element = document.getElementById(id);
+            if (!element) {
+                console.warn(`Element with id '${id}' not found`);
+                continue;
             }
+            elements[key] = element;
+        }
 
-            // If we've lost the WebGL context, try to recover
-            try {
-                // Force a render to check if context is alive
-                renderers.unified.render(scenes.unified, cameras.unified);
-            } catch (e) {
-                console.warn("Main renderer WebGL context may be lost, attempting recovery");
-                // If we get here, we might have lost the context - try to recover
-                const oldDomElement = renderers.unified.domElement;
+        // Add event listeners only if elements exist
+        const listeners = [
+            { element: 'epochSlider', event: 'input', handler: onEpochSliderChange },
+            { element: 'resetViewBtn', event: 'click', handler: onResetView },
+            { element: 'runSelector', event: 'change', handler: onRunSelect },
+            { element: 'togglePointCloud', event: 'change', handler: onTogglePointCloud },
+            { element: 'toggleCameras', event: 'change', handler: onToggleCameras },
+            { element: 'toggleObjects', event: 'change', handler: onToggleObjects },
+            { element: 'timeSlider', event: 'input', handler: onTimeSliderChange }
+        ];
 
-                // Create a new renderer with same settings
-                renderers.unified = new THREE.WebGLRenderer({
-                    antialias: true,
-                    powerPreference: 'high-performance',
-                    preserveDrawingBuffer: true
-                });
-                renderers.unified.setPixelRatio(window.devicePixelRatio);
-                renderers.unified.isPermanent = true;
-
-                // Replace the old DOM element
-                if (oldDomElement.parentNode) {
-                    oldDomElement.parentNode.replaceChild(renderers.unified.domElement, oldDomElement);
-                } else {
-                    elements.unifiedContainer.appendChild(renderers.unified.domElement);
-                }
-
-                // Recreate controls
-                controls.unified = new THREE.OrbitControls(cameras.unified, renderers.unified.domElement);
-
-                // Resize to match container
-                const width = elements.unifiedContainer.clientWidth;
-                const height = elements.unifiedContainer.clientHeight;
-                renderers.unified.setSize(width, height);
-
-                console.log("Main renderer recreated after context loss");
+        for (const { element, event, handler } of listeners) {
+            if (elements[element]) {
+                elements[element].addEventListener(event, handler);
             }
         }
-    } else {
-        elements.navPrototypes.classList.add('active');
-        elements.navPrototypesMobile.classList.add('active');
-        elements.mainView.classList.add('hidden');
-        elements.prototypesView.classList.remove('hidden');
-    }
 
-    // Resize renderers after tab switch
-    setTimeout(() => resizeRenderers(), 10);
+        // Load available runs
+        loadRuns();
+
+        console.log('UI initialized successfully');
+    } catch (error) {
+        console.error('Error initializing UI:', error);
+    }
 }
 
-/**
- * Update slot toggle buttons based on current slot data
- */
-function updateSlotToggles(slotsData) {
-    if (!slotsData || slotsData.length === 0) {
-        elements.slotToggles.innerHTML = '<div class="text-sm text-gray-500">No slots available</div>';
-        return;
-    }
-
-    // Create toggle buttons
-    elements.slotToggles.innerHTML = '';
-
-    // Add "Toggle All" button
-    const allButton = document.createElement('button');
-    allButton.className = 'btn btn-sm btn-primary';
-    allButton.textContent = 'Toggle All';
-    allButton.addEventListener('click', () => {
-        const allVisible = objects.slots.every(slot => slot.visible);
-        toggleAllSlots(!allVisible);
-    });
-    elements.slotToggles.appendChild(allButton);
-
-    // Add individual slot toggle buttons
-    slotsData.forEach((slot, index) => {
-        const slotId = slot.id;
-        const button = document.createElement('button');
-        button.className = 'btn btn-sm';
-        button.style.backgroundColor = `#${colors[index % colors.length].toString(16).padStart(6, '0')}`;
-        button.style.color = 'white';
-        button.textContent = `Slot ${index + 1}`;
-
-        button.addEventListener('click', () => {
-            toggleSlotVisibility(slotId);
-            updateToggleButtonStyles();
+// New event handlers for camera and object toggles
+function onToggleCameras() {
+    if (objects.cameras) {
+        objects.cameras.forEach(camera => {
+            camera.visible = elements.toggleCameras.checked;
         });
-
-        elements.slotToggles.appendChild(button);
-    });
-
-    updateToggleButtonStyles();
+    }
 }
 
-/**
- * Toggle visibility of a specific slot
- */
-function toggleSlotVisibility(slotId) {
-    state.slotVisibility[slotId] = !state.slotVisibility[slotId];
+function onToggleObjects() {
+    if (objects.meshes) {
+        objects.meshes.forEach(mesh => {
+            mesh.visible = elements.toggleObjects.checked;
+        });
+    }
+}
 
-    // Update mesh visibility
-    for (const mesh of objects.slots) {
-        if (mesh.userData.slotId === slotId) {
-            mesh.visible = state.slotVisibility[slotId];
-            break;
+// Event Handlers
+async function onEpochSliderChange() {
+    const epoch = elements.epochSlider.value;
+    elements.epochDisplay.textContent = `Epoch: ${epoch}/${elements.epochSlider.max}`;
+    await loadEpochData(epoch);
+}
+
+function onResetView() {
+    if (cameras.unified && controls.unified) {
+        cameras.unified.position.set(0, 1, 3);
+        controls.unified.target.set(0, 0, 0);
+        controls.unified.update();
+    }
+}
+
+async function onRunSelect() {
+    const runId = elements.runSelector.value;
+    if (!runId) return;
+
+    await loadRunData(runId);
+}
+
+function onTogglePointCloud() {
+    if (objects.pointClouds) {
+        objects.pointClouds.forEach(cloud => {
+            cloud.visible = elements.togglePointCloud.checked;
+        });
+    }
+}
+
+async function onTimeSliderChange() {
+    const frame = elements.timeSlider.value;
+    elements.timeDisplay.textContent = `Frame: ${frame}/${elements.timeSlider.max}`;
+    await loadFrameData(frame);
+}
+
+// Data Loading Functions
+async function loadRuns() {
+    try {
+        const response = await fetch('/api/runs');
+        const runs = await response.json();
+
+        elements.runSelector.innerHTML = '<option value="" disabled selected>Select a run...</option>';
+        runs.forEach(run => {
+            const option = document.createElement('option');
+            option.value = run.id;
+            option.textContent = `${run.id} (${new Date(run.timestamp * 1000).toLocaleString()})`;
+            elements.runSelector.appendChild(option);
+        });
+    } catch (error) {
+        console.error('Error loading runs:', error);
+    }
+}
+
+async function loadRunData(runId) {
+    try {
+        // First get run metadata for frame count
+        const metadataResponse = await fetch(`/api/run/${runId}/run_metadata.json`);
+        const metadata = await metadataResponse.json();
+        console.log('Run metadata:', metadata);
+
+        // Update time slider based on num_frames
+        if (elements.timeSlider) {
+            elements.timeSlider.max = metadata.num_frames - 1;
+            elements.timeSlider.value = 0;
+            elements.timeDisplay.textContent = `0/${metadata.num_frames - 1}`;
         }
+
+        const response = await fetch(`/api/run/${runId}/epochs`);
+        const iterations = await response.json();
+        console.log('Iterations:', iterations);
+
+        // Update epoch slider (now showing iterations)
+        elements.epochSlider.max = iterations.length - 1;
+        elements.epochSlider.value = 0;
+        elements.epochSlider.disabled = false;  // Enable slider
+        elements.epochDisplay.textContent = `Iteration: 0/${iterations.length - 1}`;
+
+        // Load initial iteration
+        await loadEpochData(0);
+    } catch (error) {
+        console.error('Error loading run data:', error);
     }
 }
 
-/**
- * Toggle visibility of all slots
- */
-function toggleAllSlots(visible) {
-    for (const slotId in state.slotVisibility) {
-        state.slotVisibility[slotId] = visible;
-    }
+async function loadEpochData(iteration) {
+    try {
+        const runId = elements.runSelector.value;
+        if (!runId) return;
 
-    // Update mesh visibility
-    for (const mesh of objects.slots) {
-        mesh.visible = visible;
+        // Load just the current frame
+        const frame = elements.timeSlider ? elements.timeSlider.value : 0;
+        await loadFrameData(frame);
+    } catch (error) {
+        console.error('Error loading iteration data:', error);
     }
-
-    updateToggleButtonStyles();
 }
 
-/**
- * Update toggle button styles based on current visibility
- */
-function updateToggleButtonStyles() {
-    const buttons = elements.slotToggles.querySelectorAll('.btn:not(:first-child)');
-    buttons.forEach((button, index) => {
-        const slotId = `slot_${index + 1}`;
-        if (state.slotVisibility[slotId]) {
-            button.classList.add('opacity-100');
-            button.classList.remove('opacity-50');
-        } else {
-            button.classList.add('opacity-50');
-            button.classList.remove('opacity-100');
+async function loadFrameData(frame) {
+    try {
+        const runId = elements.runSelector.value;
+        const iteration = elements.epochSlider.value;
+        if (!runId) return;
+
+        console.log('Loading frame', frame, 'from iteration', iteration);
+        const response = await fetch(`/api/run/${runId}/iter/iter_${String(iteration).padStart(4, '0')}/frame_${String(frame).padStart(4, '0')}.json`);
+        const frameData = await response.json();
+        console.log('Frame data:', frameData);
+
+        // Transform data into expected format
+        const transformedData = {
+            point_clouds: [],
+            objects: [],
+            cameras: []
+        };
+
+        // Add point clouds
+        if (frameData.true && frameData.true.point_clouds) {
+            frameData.true.point_clouds.forEach(points => {
+                transformedData.point_clouds.push({
+                    points: points,
+                    is_true: true
+                });
+            });
         }
-    });
+        if (frameData.pred && frameData.pred.point_clouds) {
+            frameData.pred.point_clouds.forEach(points => {
+                transformedData.point_clouds.push({
+                    points: points,
+                    is_true: false
+                });
+            });
+        }
+
+        // Add objects
+        if (frameData.true && frameData.true.positions) {
+            console.log('Adding true objects:', frameData.true.positions.length);
+            frameData.true.positions.forEach((pos, i) => {
+                const obj = {
+                    position: pos,
+                    rotation: frameData.true.rotations[i],
+                    scale: frameData.true.scales[i],
+                    is_true: true
+                };
+                console.log('True object:', obj);
+                transformedData.objects.push(obj);
+            });
+        }
+        if (frameData.pred && frameData.pred.positions) {
+            console.log('Adding predicted objects:', frameData.pred.positions.length);
+            frameData.pred.positions.forEach((pos, i) => {
+                const obj = {
+                    position: pos,
+                    rotation: frameData.pred.rotations[i],
+                    scale: frameData.pred.scales[i],
+                    is_true: false
+                };
+                console.log('Predicted object:', obj);
+                transformedData.objects.push(obj);
+            });
+        }
+
+        // Add cameras - each camera appears twice, once for true and once for predicted
+        if (frameData.cameras) {
+            // True cameras
+            frameData.cameras.positions.forEach((pos, i) => {
+                transformedData.cameras.push({
+                    position: pos,
+                    rotation: frameData.cameras.rotations[i],
+                    is_true: true
+                });
+            });
+            // Predicted cameras (same positions for now)
+            frameData.cameras.positions.forEach((pos, i) => {
+                transformedData.cameras.push({
+                    position: pos,
+                    rotation: frameData.cameras.rotations[i],
+                    is_true: false
+                });
+            });
+        }
+
+        console.log('Transformed data:', transformedData);
+        renderTimeVaryingScene([transformedData], false);
+    } catch (error) {
+        console.error('Error loading frame data:', error);
+    }
 }
+
+// Export functions
+window.initUI = initUI;

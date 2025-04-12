@@ -40,8 +40,8 @@ def depth_to_pointcloud(depth_map: torch.Tensor, camera: Camera) -> torch.Tensor
     valid_depths = depth_map[mask]  # [N]
 
     # Debug info
-    print(f"depth range: {depth_map.min():.2f} to {depth_map.max():.2f}")
-    print(f"num valid points: {valid_depths.shape[0]}")
+    # print(f"depth range: {depth_map.min():.2f} to {depth_map.max():.2f}")
+    # print(f"num valid points: {valid_depths.shape[0]}")
 
     # Handle case with no valid points
     if not valid_depths.numel():

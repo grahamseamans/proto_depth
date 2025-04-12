@@ -1,5 +1,6 @@
 """
 Visualize point clouds using Open3D.
+Press keys 1-8 to switch between camera views.
 """
 
 import torch
@@ -8,28 +9,20 @@ import numpy as np
 from pathlib import Path
 
 
-def create_point_cloud(points, color=[1, 0, 0]):
-    """Create Open3D point cloud with depth coloring"""
+def create_point_cloud(points):
+    """Create Open3D point cloud"""
     pcd = o3d.geometry.PointCloud()
     pcd.points = o3d.utility.Vector3dVector(points)
-
-    # Color points by depth (Z coordinate)
-    z = points[:, 2]  # Depth values
-    colors = np.zeros((len(points), 3))
-    # Map depth to color (red=near, blue=far)
-    colors[:, 0] = (z - z.min()) / (z.max() - z.min())  # Red channel
-    colors[:, 2] = 1 - colors[:, 0]  # Blue channel
-    pcd.colors = o3d.utility.Vector3dVector(colors)
-
     return pcd
 
 
 def visualize_point_clouds():
-    """Visualize point clouds from each camera"""
+    """Visualize point clouds with keyboard controls"""
     output_dir = Path("tests/output")
 
     # Load point clouds
-    clouds = []
+    point_clouds = []  # List of point clouds
+    frames = []  # List of coordinate frames
     for i in range(8):
         # Load points
         points = torch.load(
@@ -37,30 +30,13 @@ def visualize_point_clouds():
         )
         points = points.squeeze().numpy()  # [N, 3]
 
-        # Calculate grid position (2x4 grid)
-        grid_row = i // 4  # 2 rows
-        grid_col = i % 4  # 4 columns
-        offset = np.array(
-            [
-                grid_col * 10,  # X offset (10 units between columns)
-                -grid_row * 10,  # Y offset (10 units between rows)
-                0,  # No Z offset
-            ]
-        )
-
-        # Offset points to grid position
-        points = points + offset
-
         # Create point cloud
         pcd = create_point_cloud(points)
+        point_clouds.append(pcd)
 
-        # Add coordinate frame at grid position
+        # Add coordinate frame
         frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.5)
-        frame_points = np.asarray(frame.vertices) + offset
-        frame.vertices = o3d.utility.Vector3dVector(frame_points)
-
-        # Group point cloud and frame
-        clouds.extend([pcd, frame])
+        frames.append(frame)
 
         # Print camera info
         if i < 4:
@@ -72,20 +48,60 @@ def visualize_point_clouds():
             t = -5 + (10 / 3) * (i - 4)
             print(f"Camera {i}: ({t:.1f}, 3, {-t:.1f})")
 
-    # Visualize all point clouds
-    o3d.visualization.draw_geometries(
-        clouds,
-        window_name="Camera Views",
-        width=1600,
-        height=900,
-        left=50,
-        top=50,
-    )
+    # Create visualizer
+    vis = o3d.visualization.VisualizerWithKeyCallback()
+    vis.create_window(window_name="Camera Views", width=1600, height=900)
+
+    # Show first view
+    active_idx = 0
+    vis.add_geometry(point_clouds[active_idx])
+    vis.add_geometry(frames[active_idx])
+
+    # Get view control
+    view_control = vis.get_view_control()
+
+    def set_camera_view(view_control):
+        """Position camera at origin"""
+        view_control.set_lookat([0, 0, -10])  # Look at point in front (-Z)
+        view_control.camera_local_translate(0, 0, 0)  # Stay at origin
+
+    # Set initial view
+    set_camera_view(view_control)
+
+    # Register key callbacks (1-8 for cameras)
+    def make_callback(camera_idx):
+        def callback(vis):
+            nonlocal active_idx
+            print(f"Switching to Camera {camera_idx} view")
+
+            # Clear geometries
+            vis.clear_geometries()
+
+            # Show new view
+            active_idx = camera_idx
+            vis.add_geometry(point_clouds[active_idx])
+            vis.add_geometry(frames[active_idx])
+
+            # Reset camera view
+            set_camera_view(view_control)
+
+            return False
+
+        return callback
+
+    for i in range(8):
+        # Register keys 1-8
+        vis.register_key_callback(ord(str(i + 1)), make_callback(i))
+
+    # Run visualizer
+    vis.run()
+    vis.destroy_window()
 
 
 def main():
     """Main visualization script"""
     print("Loading point clouds...")
+    print("Press keys 1-8 to switch between camera views")
     visualize_point_clouds()
 
 

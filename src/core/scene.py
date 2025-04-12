@@ -4,10 +4,9 @@ Encapsulates state, rendering, and optimization in one place.
 """
 
 import torch
-import torch.nn as nn
-import torch.optim as optim
 import numpy as np
 from pathlib import Path
+import urllib.request
 import kaolin.io.obj
 import kaolin.ops.mesh
 import kaolin.render.mesh as mesh_render
@@ -23,49 +22,130 @@ class Scene:
     Combines data generation, rendering, and energy optimization.
     """
 
-    def __init__(self, num_objects=2, device=None):
+    def __init__(self, num_objects=2, num_frames=30, device=None):
         """
         Initialize scene with random object parameters.
 
         Args:
             num_objects: Number of objects in scene
+            num_frames: Number of time frames
             device: Device to use for computations
         """
         if device is None:
             device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.device = device
         self.num_objects = num_objects
+        self.num_frames = num_frames
 
-        # Load mesh data (cached since it never changes)
-        self.vertices, self.faces = self._load_mesh("3d_models")
-
-        # Initialize optimizable parameters
-        self.positions = nn.Parameter(
-            (torch.rand(num_objects, 3, device=device) * 2 - 1) * 1.0  # [-1, 1] meters
-        )
-        self.rotations = nn.Parameter(
-            (torch.rand(num_objects, 3, device=device) - 0.5)
-            * (torch.pi / 2)  # [-π/4, π/4] radians
-        )
-        self.scales = nn.Parameter(
-            torch.rand(num_objects, 1, device=device) * 2.0 + 1.0  # [1.0, 3.0]
+        # Create fixed camera positions
+        self.camera_positions = torch.tensor(
+            [
+                [1.0, 0.3, 0.0],  # Side view
+                [0.7, 0.3, 0.7],  # Corner view
+            ],
+            device=device,
         )
 
-        # Setup optimizer
-        self.optimizer = optim.Adam(
-            [self.positions, self.rotations, self.scales], lr=0.01
+        # Create fixed camera rotations (looking at origin)
+        self.camera_rotations = torch.zeros(2, 3, device=device)
+        for i in range(2):
+            # Calculate rotation to look at origin from position
+            pos = self.camera_positions[i]
+            self.camera_rotations[i] = torch.tensor(
+                [
+                    torch.atan2(
+                        -pos[1], torch.sqrt(pos[0] ** 2 + pos[2] ** 2)
+                    ),  # X rotation (pitch)
+                    torch.atan2(pos[2], pos[0]),  # Y rotation (yaw)
+                    0.0,  # Z rotation (roll)
+                ],
+                device=device,
+            )
+
+        # True scene state over time (what actually exists)
+        self.true_positions = torch.zeros(num_frames, num_objects, 3, device=device)
+        self.true_rotations = torch.zeros(num_frames, num_objects, 3, device=device)
+        self.true_scales = torch.ones(num_frames, num_objects, 1, device=device)
+
+        # Generate motion paths
+        for t in range(num_frames):
+            time = t / (num_frames - 1)  # Normalize to [0, 1]
+
+            # Object 1: Circle motion
+            angle = 2 * np.pi * time
+            self.true_positions[t, 0] = torch.tensor(
+                [
+                    0.3 * torch.cos(torch.tensor(angle)),  # X
+                    0.0,  # Y
+                    0.3 * torch.sin(torch.tensor(angle)),  # Z
+                ],
+                device=device,
+            )
+
+            # Object 2: Figure-8 motion
+            self.true_positions[t, 1] = torch.tensor(
+                [
+                    0.2 * torch.cos(torch.tensor(angle)),  # X
+                    0.0,  # Y
+                    0.2 * torch.sin(torch.tensor(2 * angle)),  # Z
+                ],
+                device=device,
+            )
+
+            # Simple rotation (Y-axis spin)
+            self.true_rotations[t, :, 1] = 2 * np.pi * time
+
+        # Create true cameras
+        self.true_cameras = self._generate_cameras(
+            self.camera_positions, self.camera_rotations
         )
 
-        # Generate camera path (fixed viewpoints)
-        self.cameras = self._generate_camera_path()
+        # Load mesh once
+        self.true_mesh_verts, self.true_mesh_faces = self._load_mesh("3d_models")
 
-        # For tracking progress
-        self.iteration = 0
-        self.loss_history = []
+        # Predicted scene state (what we think exists)
+        # Initialize with noisy versions of true positions
+        noise = torch.randn_like(self.true_positions) * 0.1
+        self.pred_positions = self.true_positions + noise
+        self.pred_rotations = self.true_rotations.clone()
+        self.pred_scales = self.true_scales.clone()
+
+        # Initialize predicted cameras with noise
+        noise_pos = torch.randn_like(self.camera_positions) * 0.1
+        noise_rot = torch.randn_like(self.camera_rotations) * 0.1
+        self.pred_cameras = self._generate_cameras(
+            self.camera_positions + noise_pos, self.camera_rotations + noise_rot
+        )
+
+        self.pred_mesh_verts = self.true_mesh_verts
+        self.pred_mesh_faces = self.true_mesh_faces
+
+    @staticmethod
+    def _download_models(models_dir):
+        """Download test models in OBJ format"""
+        models_dir = Path(models_dir)
+        models_dir.mkdir(exist_ok=True)
+
+        # URLs from alecjacobson's common-3d-test-models repo
+        model_urls = {
+            "bunny": "https://raw.githubusercontent.com/alecjacobson/common-3d-test-models/master/data/stanford-bunny.obj",
+            "spot": "https://raw.githubusercontent.com/alecjacobson/common-3d-test-models/master/data/spot.obj",
+            "armadillo": "https://raw.githubusercontent.com/alecjacobson/common-3d-test-models/master/data/armadillo.obj",
+        }
+
+        for name, url in model_urls.items():
+            path = models_dir / f"{name}.obj"
+            if not path.exists():
+                print(f"Downloading {name} model...")
+                urllib.request.urlretrieve(url, path)
 
     def _load_mesh(self, models_dir):
         """Load OBJ models"""
         models_dir = Path(models_dir)
+
+        # Download models if they don't exist
+        if not models_dir.exists() or not any(models_dir.glob("*.obj")):
+            self._download_models(models_dir)
 
         # Try loading available models
         model_files = {
@@ -84,27 +164,12 @@ class Scene:
                 faces = mesh.faces.to(dtype=torch.int64, device=self.device)
                 return vertices, faces
 
-        raise FileNotFoundError(
-            f"No models found in {models_dir}. "
-            "Run scripts/visualize_dataloader.py first to download models."
-        )
+        raise FileNotFoundError(f"Failed to load any models from {models_dir}")
 
-    def _generate_camera_path(self):
-        """Generate X-shaped camera path through scene"""
+    def _generate_cameras(self, positions, rotations):
+        """Generate cameras at given positions looking at origin"""
         cameras = []
-        t = torch.linspace(-1, 1, 4, device=self.device)  # 8 total views
-
-        # First diagonal of X: (-5,3,-5) to (5,3,5)
-        for i in range(4):
-            pos = torch.tensor(
-                [
-                    t[i] * 5,  # x: -5 to 5
-                    3.0,  # fixed height
-                    t[i] * 5,  # z: -5 to 5
-                ],
-                device=self.device,
-            )
-
+        for pos, rot in zip(positions, rotations):
             camera = Camera.from_args(
                 eye=pos,
                 at=torch.zeros(3, device=self.device),
@@ -112,37 +177,74 @@ class Scene:
                 fov=60 * np.pi / 180,
                 width=256,
                 height=256,
-                near=1e-2,
-                far=100.0,
+                near=0.001,  # 1mm near plane
+                far=10.0,  # 10m far plane
                 device=self.device,
             )
             cameras.append(camera)
-
-        # Second diagonal: (-5,3,5) to (5,3,-5)
-        for i in range(4):
-            pos = torch.tensor(
-                [
-                    t[i] * 5,  # x: -5 to 5
-                    3.0,  # fixed height
-                    -t[i] * 5,  # z: 5 to -5
-                ],
-                device=self.device,
-            )
-
-            camera = Camera.from_args(
-                eye=pos,
-                at=torch.zeros(3, device=self.device),
-                up=torch.tensor([0.0, 1.0, 0.0], device=self.device),
-                fov=60 * np.pi / 180,
-                width=256,
-                height=256,
-                near=1e-2,
-                far=100.0,
-                device=self.device,
-            )
-            cameras.append(camera)
-
         return cameras
+
+    def get_frame_state(self, frame_idx):
+        """Get scene state for a specific frame"""
+        return {
+            "true": {
+                "positions": self.true_positions[frame_idx],
+                "rotations": self.true_rotations[frame_idx],
+                "scales": self.true_scales[frame_idx],
+            },
+            "pred": {
+                "positions": self.pred_positions[frame_idx],
+                "rotations": self.pred_rotations[frame_idx],
+                "scales": self.pred_scales[frame_idx],
+            },
+        }
+
+    def get_ground_truth_clouds(self, frame_idx):
+        """
+        Get point clouds from true scene using depth maps for a specific frame.
+        Each point cloud is in its camera's local space.
+        This is what cameras actually see.
+
+        Args:
+            frame_idx: Which frame to get clouds for
+        """
+        point_clouds = []
+        for camera in self.true_cameras:
+            # Get depth map from true scene state at this frame
+            depth_map = self._render_depth(
+                camera,
+                self.true_mesh_verts,
+                self.true_mesh_faces,
+                self.true_positions[frame_idx],
+                self.true_rotations[frame_idx],
+                self.true_scales[frame_idx],
+            )
+            # Convert to point cloud
+            points = depth_to_pointcloud(depth_map, camera)
+            point_clouds.append(points)
+        return point_clouds
+
+    def get_transformed_clouds(self, frame_idx):
+        """
+        Get point clouds transformed by predicted camera positions.
+        This shows how well predicted cameras align with ground truth.
+
+        Args:
+            frame_idx: Which frame to get clouds for
+        """
+        # Get ground truth clouds in camera space
+        point_clouds = self.get_ground_truth_clouds(frame_idx)
+
+        # Transform each cloud by its predicted camera
+        transformed_clouds = []
+        for i, (points, pred_cam) in enumerate(zip(point_clouds, self.pred_cameras)):
+            if points.ndim == 2:
+                points = points.unsqueeze(0)
+            # Transform to world space using predicted camera
+            transformed = pred_cam.extrinsics.transform(points)
+            transformed_clouds.append(transformed.squeeze())
+
+        return transformed_clouds
 
     def _transform_vertices(self, vertices, position, rotation, scale):
         """Transform mesh vertices based on position, rotation, and scale"""
@@ -171,8 +273,8 @@ class Scene:
         # Apply rotation and translation
         return vertices @ R.T + position.unsqueeze(0)
 
-    def _render_depth(self, camera):
-        """Render depth map from current scene state"""
+    def _render_depth(self, camera, vertices, faces, positions, rotations, scales):
+        """Render depth map from given scene state"""
         # Start with far plane
         depth_map = torch.full((256, 256), camera.far, device=self.device)
 
@@ -180,10 +282,10 @@ class Scene:
         for i in range(self.num_objects):
             # 1. Transform vertices to world space
             verts = self._transform_vertices(
-                self.vertices,
-                self.positions[i],
-                self.rotations[i],
-                self.scales[i],
+                vertices,
+                positions[i],
+                rotations[i],
+                scales[i],
             )
 
             # 2. Transform to camera space
@@ -195,13 +297,13 @@ class Scene:
 
             # 3. Get face vertices in camera space
             face_vertices_camera = kaolin.ops.mesh.index_vertices_by_faces(
-                verts_camera, self.faces
+                verts_camera, faces
             )
 
             # 4. Project to screen space
             verts_screen = camera.intrinsics.transform(verts_camera)
             face_vertices_screen = kaolin.ops.mesh.index_vertices_by_faces(
-                verts_screen, self.faces
+                verts_screen, faces
             )
 
             # 5. Rasterize with z values from camera space
@@ -217,136 +319,77 @@ class Scene:
             # Keep closest depth (remove any extra dimensions)
             depth_map = torch.minimum(depth_map, obj_depth[..., 0])
 
-        # Debug shape
-        print(f"render_depth output shape: {depth_map.shape}")
         return depth_map.squeeze()  # Ensure [H, W]
 
-    def get_scene_points(self):
+    def compute_energy(self, frame_idx):
         """
-        Get point clouds from current scene state.
-        Each point cloud is in its camera's local space.
-        """
-        point_clouds = []
-        for camera in self.cameras:
-            # Get depth map
-            depth_map = self._render_depth(camera)
-
-            # Debug depth map shape
-            print(f"depth_map shape before pointcloud: {depth_map.shape}")
-
-            # Convert to point cloud (in camera space)
-            points = depth_to_pointcloud(depth_map, camera)
-            print(f"points shape after pointcloud: {points.shape}")
-
-            point_clouds.append(points)
-
-        return point_clouds
-
-    def _transform_to_world(self, points, camera_idx):
-        """Transform points from camera space to world space using state's camera position"""
-        camera = self.cameras[camera_idx]
-        # Ensure points are [B, N, 3]
-        if points.ndim == 2:
-            points = points.unsqueeze(0)
-        return camera.extrinsics.transform(points)  # Maintains batch dimension
-
-    def _chamfer_loss(self, target_points):
-        """
-        Compute Chamfer distance between:
-        1. Target point clouds transformed by state's camera positions
-        2. State's belief of where objects are
+        Compute energy between ground truth and predicted state for a frame.
+        Uses sided_distance since cameras only see visible surfaces.
 
         Args:
-            target_points: List of point clouds, each in its camera's local space
+            frame_idx: Which frame to compute energy for
         """
-        total_loss = 0
+        # Get ground truth clouds for this frame
+        ground_truth_clouds = self.get_ground_truth_clouds(frame_idx)
+
+        total_energy = 0
 
         # For each camera view
-        for i, target in enumerate(target_points):
-            # Transform target points using state's camera position (keep gradients)
-            target_world = self._transform_to_world(target, i)  # [1, N, 3]
+        for i, target in enumerate(ground_truth_clouds):
+            # Transform ground truth points using predicted camera position
+            if target.ndim == 2:
+                target = target.unsqueeze(0)  # Add batch dimension
+            target_world = self.pred_cameras[i].extrinsics.transform(target)
 
-            # Get current scene prediction from this camera
-            pred_depth = self._render_depth(self.cameras[i])
-            print(f"pred_depth range: {pred_depth.min():.2f} to {pred_depth.max():.2f}")
-            print(f"pred_depth shape: {pred_depth.shape}")
-            print(f"num valid depths: {(pred_depth < self.cameras[i].far).sum()}")
-
-            pred_points = depth_to_pointcloud(pred_depth, self.cameras[i])  # [1, M, 3]
-            print(f"target_world shape: {target_world.shape}")
-            print(f"pred_points shape: {pred_points.shape}")
-
-            # Ensure both have batch dimension
-            if target_world.ndim == 2:
-                target_world = target_world.unsqueeze(0)
+            # Get predicted points from this camera view
+            pred_depth = self._render_depth(
+                self.pred_cameras[i],
+                self.pred_mesh_verts,
+                self.pred_mesh_faces,
+                self.pred_positions[frame_idx],
+                self.pred_rotations[frame_idx],
+                self.pred_scales[frame_idx],
+            )
+            pred_points = depth_to_pointcloud(pred_depth, self.pred_cameras[i])
             if pred_points.ndim == 2:
                 pred_points = pred_points.unsqueeze(0)
-
-            print(
-                f"After unsqueeze - target: {target_world.shape}, pred: {pred_points.shape}"
-            )
 
             # Make contiguous for CUDA ops
             target_world = target_world.contiguous()
             pred_points = pred_points.contiguous()
 
-            # Compute Chamfer distance
+            # Use sided_distance since cameras only see visible surfaces
             dist_to_pred = kaolin_metrics.sided_distance(target_world, pred_points)[0]
-            total_loss += dist_to_pred.mean()
+            total_energy += dist_to_pred.mean()
 
-        return total_loss / len(target_points)
+        return total_energy / len(ground_truth_clouds)
 
-    def step(self, target_points):
+    def get_visualization_data(self, frame_idx):
         """
-        Perform one optimization step.
+        Get all data needed for visualization of a frame.
 
         Args:
-            target_points: List of point clouds, each in its camera's local space
-
-        Returns:
-            loss: Scalar loss value
+            frame_idx: Which frame to get data for
         """
-        self.optimizer.zero_grad()
+        frame_state = self.get_frame_state(frame_idx)
+        true_clouds = self.get_ground_truth_clouds(frame_idx)
+        transformed_clouds = self.get_transformed_clouds(frame_idx)
 
-        # Compute loss between transformed target and state
-        loss = self._chamfer_loss(target_points)
-
-        # Optimize
-        loss.backward()
-        self.optimizer.step()
-
-        # Track progress
-        self.iteration += 1
-        self.loss_history.append(loss.item())
-
-        return loss.item()
-
-    def optimize(self, target_points, num_iterations=1000, callback=None):
-        """
-        Run optimization for specified iterations.
-
-        Args:
-            target_points: List of point clouds, each in its camera's local space
-            num_iterations: Number of optimization steps
-            callback: Optional callback(scene, loss, iter) for visualization
-
-        Returns:
-            loss_history: List of loss values during optimization
-        """
-        print(f"Optimizing scene for {num_iterations} iterations...")
-
-        for i in range(num_iterations):
-            loss = self.step(target_points)
-
-            if i % 100 == 0:
-                print(f"Iteration {i}: loss = {loss:.6f}")
-
-            if callback is not None:
-                callback(self, loss, i)
-
-            # Optional: Early stopping
-            if loss < 1e-6:
-                print(f"Converged at iteration {i} with loss {loss:.6f}")
-                break
-
-        return self.loss_history
+        return {
+            "true": {
+                "positions": frame_state["true"]["positions"].tolist(),
+                "rotations": frame_state["true"]["rotations"].tolist(),
+                "scales": frame_state["true"]["scales"].tolist(),
+                "point_clouds": [cloud.tolist() for cloud in true_clouds],
+            },
+            "pred": {
+                "positions": frame_state["pred"]["positions"].tolist(),
+                "rotations": frame_state["pred"]["rotations"].tolist(),
+                "scales": frame_state["pred"]["scales"].tolist(),
+                "point_clouds": [cloud.tolist() for cloud in transformed_clouds],
+            },
+            "cameras": {
+                "positions": self.camera_positions.tolist(),
+                "rotations": self.camera_rotations.tolist(),
+            },
+        }

@@ -27,4 +27,4 @@ echo "Starting visualization server on http://localhost:$PORT"
 echo "Live reloading enabled (ignoring changes in data directory)"
 
 # Start Flask with debug mode and exclude data directory from triggering reloads
-python -m flask run --host=$HOST --port=$PORT --debug
+uv run python -m flask run --host=$HOST --port=$PORT --debug

@@ -1,21 +1,20 @@
 """
-Run scene optimization on RunPod and save state at each iteration.
-Saves data in viz server format for visualization.
+Optimize scene state over time and save visualization data.
 """
 
 import torch
 import json
 import time
 from pathlib import Path
-
+import numpy as np
 from src import Scene
 
 
 def save_iteration_data(scene, iteration, output_dir):
-    """Save scene state and point clouds for this iteration"""
+    """Save scene state for all frames at this iteration"""
     # Create output directory
     output_dir = Path(output_dir)
-    output_dir.mkdir(exist_ok=True, parents=True)
+    output_dir.mkdir(exist_ok=True)
     iter_dir = output_dir / f"iter_{iteration:04d}"
     iter_dir.mkdir(exist_ok=True)
 
