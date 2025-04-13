@@ -17,30 +17,21 @@ import * as THREE from 'three';
  * @returns {THREE.LineSegments} The created frustum visualization
  */
 export function createFrustum(position, rotation, options = {}) {
-    console.log('createFrustum input:', {
-        position: Array.isArray(position) ? position : position.toArray(),
-        rotation: Array.isArray(rotation) ? rotation : rotation.toArray(),
-        options
-    });
-
     // Convert position array to Vector3 if needed
     if (Array.isArray(position)) {
         position = new THREE.Vector3(...position);
     }
-    console.log('Position vector:', position.toArray());
 
     // Convert rotation array to direction vector
     let direction;
     if (Array.isArray(rotation)) {
-        // Create direction vector from euler angles
-        const euler = new THREE.Euler(rotation[0], rotation[1], rotation[2]);
-        console.log('Euler angles:', [euler.x, euler.y, euler.z]);
-        direction = new THREE.Vector3(0, 0, 1).applyEuler(euler);
+        // Create direction vector from euler angles (camera looks down -Z)
+        const euler = new THREE.Euler(rotation[0], rotation[1], rotation[2], 'YXZ');
+        direction = new THREE.Vector3(0, 0, -1).applyEuler(euler);
     } else {
         // Assume rotation is already a direction vector
         direction = rotation;
     }
-    console.log('Direction vector:', direction.toArray());
     const {
         color = 0x0000ff,
         opacity = 0.3,
@@ -54,7 +45,6 @@ export function createFrustum(position, rotation, options = {}) {
     // Calculate frustum corners
     const halfHeight = Math.tan(fov * Math.PI / 360) * far;
     const halfWidth = halfHeight * aspect;
-    console.log('Frustum dimensions:', { halfHeight, halfWidth, far });
 
     // Create up vector (assuming Y-up)
     const up = new THREE.Vector3(0, 1, 0);
@@ -63,15 +53,9 @@ export function createFrustum(position, rotation, options = {}) {
     const farCenter = new THREE.Vector3().copy(position).add(
         new THREE.Vector3().copy(direction).multiplyScalar(far)
     );
-    console.log('Far center:', farCenter.toArray());
 
     const right = new THREE.Vector3().crossVectors(direction, up).normalize();
     const upVec = new THREE.Vector3().crossVectors(right, direction).normalize();
-    console.log('Basis vectors:', {
-        right: right.toArray(),
-        up: upVec.toArray(),
-        direction: direction.toArray()
-    });
 
     const farTopLeft = new THREE.Vector3()
         .copy(farCenter)
@@ -93,12 +77,6 @@ export function createFrustum(position, rotation, options = {}) {
         .add(right.clone().multiplyScalar(halfWidth))
         .add(upVec.clone().multiplyScalar(-halfHeight));
 
-    console.log('Frustum corners:', {
-        farTopLeft: farTopLeft.toArray(),
-        farTopRight: farTopRight.toArray(),
-        farBottomLeft: farBottomLeft.toArray(),
-        farBottomRight: farBottomRight.toArray()
-    });
 
     // Create geometry for the frustum outline - proper pyramid shape
     const geometry = new THREE.BufferGeometry();
@@ -117,8 +95,6 @@ export function createFrustum(position, rotation, options = {}) {
     ]);
 
     geometry.setAttribute('position', new THREE.BufferAttribute(outlineVertices, 3));
-
-    console.log('Original vertices:', Array.from(outlineVertices));
 
     // Create tube geometry directly from our line segments
     const tubeGeometry = new THREE.BufferGeometry();
@@ -174,10 +150,6 @@ export function createFrustum(position, rotation, options = {}) {
     tubeGeometry.setIndex(tubeIndices);
     tubeGeometry.computeVertexNormals();
 
-    console.log('Final tube geometry:', {
-        vertices: Array.from(tubeVertices),
-        indices: Array.from(tubeIndices)
-    });
 
     // Create material and mesh
     const material = new THREE.MeshBasicMaterial({

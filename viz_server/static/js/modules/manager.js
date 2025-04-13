@@ -40,7 +40,10 @@ export class VisualizationManager {
     async loadBunnyMesh() {
         try {
             this.bunnyMeshData = await loadObjFile('/static/3d_models/bunny.obj');
-            console.log('Bunny mesh loaded successfully');
+            console.log('Bunny mesh loaded:', {
+                vertices: this.bunnyMeshData.vertices.length,
+                faces: this.bunnyMeshData.faces.length
+            });
         } catch (error) {
             console.error('Error loading bunny mesh:', error);
         }
@@ -97,23 +100,26 @@ export class VisualizationManager {
                     rotation: cameraRot
                 });
 
-                // Create rotation matrix from Euler angles
+                // Create rotation matrix from euler angles
                 const rotMatrix = new THREE.Matrix4();
-                rotMatrix.makeRotationFromEuler(new THREE.Euler(cameraRot[0], cameraRot[1], cameraRot[2]));
-                console.log('Rotation matrix:', rotMatrix.elements);
+                const euler = new THREE.Euler(cameraRot[0], cameraRot[1], cameraRot[2], 'YXZ');
+                rotMatrix.makeRotationFromEuler(euler);
 
                 // Create translation matrix
                 const transMatrix = new THREE.Matrix4();
                 transMatrix.makeTranslation(cameraPos[0], cameraPos[1], cameraPos[2]);
-                console.log('Translation matrix:', transMatrix.elements);
 
-                // Combine rotation and translation (rotation first, then translation)
+                // Combine transforms (rotation first, then translation)
                 const transform = new THREE.Matrix4();
                 transform.multiplyMatrices(transMatrix, rotMatrix);
-                console.log('Combined transform matrix:', transform.elements);
 
-                // Apply transform to each point
-                console.log('First point before transform:', points[0]);
+                console.log('Camera transform:', {
+                    position: cameraPos,
+                    rotation: euler.toArray(),
+                    matrix: transform.elements
+                });
+
+                // Transform points from camera space to world space
                 return points.map(point => {
                     const vec = new THREE.Vector3(point[0], point[1], point[2]);
                     vec.applyMatrix4(transform);
@@ -228,7 +234,14 @@ export class VisualizationManager {
             // Add object meshes if bunny data is loaded (new format: true.objects and pred.objects)
             if (this.bunnyMeshData) {
                 const objects = [];
+
+                // Add true objects
                 if (frameData.true?.objects) {
+                    console.log('True objects:', {
+                        positions: frameData.true.objects.positions,
+                        rotations: frameData.true.objects.rotations,
+                        scales: frameData.true.objects.scales
+                    });
                     frameData.true.objects.positions.forEach((pos, i) => {
                         objects.push({
                             data: this.bunnyMeshData,
@@ -238,8 +251,17 @@ export class VisualizationManager {
                             isTrue: true
                         });
                     });
+                } else {
+                    console.warn('No true objects in frame data');
                 }
+
+                // Add predicted objects
                 if (frameData.pred?.objects) {
+                    console.log('Predicted objects:', {
+                        positions: frameData.pred.objects.positions,
+                        rotations: frameData.pred.objects.rotations,
+                        scales: frameData.pred.objects.scales
+                    });
                     frameData.pred.objects.positions.forEach((pos, i) => {
                         objects.push({
                             data: this.bunnyMeshData,
@@ -249,12 +271,18 @@ export class VisualizationManager {
                             isTrue: false
                         });
                     });
+                } else {
+                    console.warn('No predicted objects in frame data');
                 }
+
+                // Create and add meshes
+                console.log('Creating meshes for objects:', objects);
                 this.meshes = createMeshes(objects);
                 this.meshes.forEach(mesh => {
                     mesh.visible = this.showMeshes;
                     this.scene.add(mesh);
                 });
+                console.log('Added meshes to scene:', this.meshes.length);
             } else {
                 console.warn('Bunny mesh data not loaded yet');
             }

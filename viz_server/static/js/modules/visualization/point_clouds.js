@@ -5,6 +5,8 @@ import * as THREE from 'three';
 
 /**
  * Convert from camera space (-Z forward) to Three.js space (+Z forward)
+ * Note: Points are already in camera space (camera at origin, -Z forward)
+ * We don't need to flip Z since the camera transform will handle orientation
  */
 export function transformToThreeSpace(points) {
     if (!Array.isArray(points)) {
@@ -16,7 +18,8 @@ export function transformToThreeSpace(points) {
             console.warn('transformToThreeSpace: skipping invalid point:', point);
             return null;
         }
-        return [point[0], point[1], -point[2]];
+        // Keep points in camera space, let camera transform handle orientation
+        return [point[0], point[1], point[2]];
     }).filter(point => point !== null);
     console.log(`transformToThreeSpace: transformed ${transformed.length} points`);
     return transformed;
