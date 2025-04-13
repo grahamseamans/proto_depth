@@ -14,53 +14,42 @@ def depth_to_pointcloud(depth_map: torch.Tensor, camera: Camera) -> torch.Tensor
         camera: Kaolin Camera object used to generate the depth map
 
     Returns:
-        points: [N, 3] tensor of points in world space, where N is the number
+        points: [N, 3] tensor of points in camera space, where N is the number
                of valid depth values (not at far plane)
     """
-    H, W = depth_map.shape[:2]  # Handle [H, W] or [H, W, 1]
     depth_map = depth_map.squeeze()  # Remove any extra dimensions
+    depth_map *= -1  # Convert to positive magnitudes
 
-    # Remove any batch dimensions from depth map first
-    depth_map = depth_map.squeeze()  # [H, W]
+    # Get camera rays
+    ray_orig, ray_dir = camera.generate_rays()  # [H*W, 3] each
 
-    # Generate pixel coordinates in camera space
-    y_coords = (
-        torch.arange(H, device=depth_map.device).view(-1, 1).expand(-1, W)
-    )  # [H, W]
-    x_coords = (
-        torch.arange(W, device=depth_map.device).view(1, -1).expand(H, -1)
-    )  # [H, W]
+    # Normalize ray directions before scaling by depth
+    ray_dir = ray_dir / torch.linalg.norm(ray_dir, dim=-1, keepdim=True)
 
-    # Convert to NDC space [-1, 1]
-    x = (2.0 * x_coords.float() / (W - 1)) - 1.0  # [H, W]
-    y = (2.0 * y_coords.float() / (H - 1)) - 1.0  # [H, W]
+    # Scale normalized rays by depth values
+    points = ray_orig + ray_dir * depth_map.reshape(-1, 1)  # [H*W, 3]
 
-    # Get valid depths (ignore far plane and background)
-    mask = (depth_map < -0.1) & (depth_map > -10.0)  # Only reasonable depths
-    valid_depths = depth_map[mask]  # [N]
+    world2cam = camera.extrinsics.view_matrix().squeeze(0)  # [4, 4]
+    points = torch.cat([points, torch.ones_like(points[:, :1])], dim=1)  # [H*W, 4]
+    points = points @ world2cam.T  # [H*W, 4]
+    points = points[:, :3]  # [H*W, 3]
 
-    # Debug info
-    # print(f"depth range: {depth_map.min():.2f} to {depth_map.max():.2f}")
-    # print(f"num valid points: {valid_depths.shape[0]}")
+    return points  # [N, 3] points in camera space
+    # depth_map = depth_map.squeeze()  # Remove any extra dimensions
+    # depth_map *= -1
 
-    # Handle case with no valid points
-    if not valid_depths.numel():
-        return torch.zeros((0, 3), device=depth_map.device)
+    # # Get camera rays
+    # ray_orig, ray_dir = camera.generate_rays()  # [H*W, 3] each
 
-    # Get valid pixel coordinates
-    valid_x = x[mask]  # [N]
-    valid_y = y[mask]  # [N]
+    # # Scale rays by depth values
+    # points = ray_orig + ray_dir * depth_map.reshape(-1, 1)  # [H*W, 3]
 
-    # Convert to 3D points in camera space
-    # Note: Camera looks down -Z, so depths are already negative
-    points = torch.stack(
-        [
-            valid_x * valid_depths,  # X = x * depth
-            valid_y * valid_depths,  # Y = y * depth (keep Kaolin's coordinate system)
-            valid_depths,  # Z = depth (already negative from renderer, -Z forward)
-        ],
-        dim=-1,
-    )  # [N, 3]
+    # world2cam = camera.extrinsics.view_matrix().squeeze(0)  # [4, 4]
 
-    # Keep points in camera space
-    return points  # Return [N, 3] without batch dimension
+    # points = torch.cat([points, torch.ones_like(points[:, :1])], dim=1)  # [H*W, 4]
+
+    # points = points @ world2cam.T  # [H*W, 4]
+
+    # points = points[:, :3]  # [H*W, 3]
+
+    # return points  # [N, 3] points in camera space

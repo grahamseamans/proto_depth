@@ -5,6 +5,7 @@ Visualize point clouds using Open3D.
 import json
 import glob
 import os
+import copy
 import open3d as o3d
 import numpy as np
 
@@ -74,6 +75,27 @@ def visualize_point_clouds():
     camera_transforms = [np.array(transform) for transform in camera_transforms]
     point_clouds = [np.array(pc) for pc in point_clouds]
 
+    # Print camera transforms
+    print("\nCamera transforms (camera to world):")
+    for i, transform in enumerate(camera_transforms):
+        print(f"\nCamera {i}:")
+        print(
+            f"Position: [{transform[0, 3]:.3f}, {transform[1, 3]:.3f}, {transform[2, 3]:.3f}]"
+        )
+        print(
+            f"Right: [{transform[0, 0]:.3f}, {transform[1, 0]:.3f}, {transform[2, 0]:.3f}]"
+        )
+        print(
+            f"Up: [{transform[0, 1]:.3f}, {transform[1, 1]:.3f}, {transform[2, 1]:.3f}]"
+        )
+        print(
+            f"Forward: [{transform[0, 2]:.3f}, {transform[1, 2]:.3f}, {transform[2, 2]:.3f}]"
+        )
+        # Print inverse (world to camera) matrix
+        world2cam = np.linalg.inv(transform)
+        print("\nWorld to camera matrix:")
+        print(world2cam)
+
     # Transform each point cloud to world space
     world_clouds = []
     for i, (points, transform) in enumerate(zip(point_clouds, camera_transforms)):
@@ -115,8 +137,8 @@ def visualize_point_clouds():
             colors.append([3 * (hue - 2 / 3), 0, 1 - 3 * (hue - 2 / 3)])  # Blue to Red
 
     # Add each point cloud in world space
-    # for i, points in enumerate(world_clouds):
-    for i, points in enumerate(point_clouds):
+    for i, points in enumerate(world_clouds):
+        # for i, points in enumerate(point_clouds):
         # Create and add colored point cloud
         pcd = create_point_cloud(points, colors[i])
         vis.add_geometry(pcd)
@@ -124,6 +146,57 @@ def visualize_point_clouds():
     # Add coordinate frame
     frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.5)
     vis.add_geometry(frame)
+
+    # Create base arrow at origin pointing in -z
+    base_arrow = o3d.geometry.TriangleMesh.create_arrow(
+        cylinder_radius=0.02,
+        cone_radius=0.04,
+        cylinder_height=0.5,
+        cone_height=0.2,
+    )
+    R = np.array([[1, 0, 0], [0, -1, 0], [0, 0, -1]])
+
+    base_arrow.rotate(R, center=[0, 0, 0])
+    base_arrow.paint_uniform_color([1, 1, 0])  # Yellow
+    vis.add_geometry(base_arrow)
+
+    # Create transformed arrows for each camera
+    for i, transform in enumerate(camera_transforms):
+        arrow = copy.deepcopy(base_arrow)
+
+        # Print camera info
+        pos = transform[:3, 3]  # Fourth column is position
+        view_dir = transform[:3, 2]  # Third column is forward direction
+        at_point = pos + view_dir  # Point camera is looking at
+        print(f"\nCamera {i}:")
+        print(f"Position: {pos}")
+        print(f"View direction: {view_dir}")
+        print(f"Looking at point: {at_point}")
+
+        # Get arrow's direction before transform
+        vertices = np.asarray(arrow.vertices)
+        tip_vertex = vertices[vertices[:, 1].argmax()]  # Highest y-coord is tip
+        base_vertex = vertices[vertices[:, 1].argmin()]  # Lowest y-coord is base
+        direction = tip_vertex - base_vertex
+        direction = direction / np.linalg.norm(direction)
+        print(f"Arrow {i} before transform:")
+        print(f"Direction: {direction}")
+
+        # Transform arrow
+        arrow.transform(transform)
+
+        # Get arrow's direction after transform
+        vertices = np.asarray(arrow.vertices)
+        tip_vertex = vertices[vertices[:, 1].argmax()]
+        base_vertex = vertices[vertices[:, 1].argmin()]
+        direction = tip_vertex - base_vertex
+        direction = direction / np.linalg.norm(direction)
+        print(f"Arrow {i} after transform:")
+        print(f"Direction: {direction}")
+        print(f"Should match view direction: {view_dir}")
+
+        arrow.paint_uniform_color(colors[i])  # Same color as point cloud
+        vis.add_geometry(arrow)
 
     # Set view
     view_control = vis.get_view_control()

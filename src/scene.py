@@ -71,7 +71,8 @@ class Scene:
         self.camera_positions = torch.tensor(
             [
                 [1.0, 0.3, 0.0],  # Side view
-                [0.7, 0.3, 0.7],  # Corner view
+                [0.0, 0.3, 1.0],  # Side view
+                # [0.7, 0.3, 0.7],  # Corner view
             ],
             device=device,
         )
@@ -86,8 +87,8 @@ class Scene:
                 fov=60 * np.pi / 180,
                 width=256,
                 height=256,
-                near=0.001,  # 1mm near plane
-                far=10.0,  # 10m far plane
+                near=-0.001,  # 1mm near plane
+                far=-10.0,  # 10m far plane
                 device=device,
             )
             self.true_cameras.append(camera)
@@ -166,8 +167,8 @@ class Scene:
                 fov=60 * np.pi / 180,
                 width=256,
                 height=256,
-                near=0.001,
-                far=10.0,
+                near=-0.001,
+                far=-10.0,
                 device=device,
             )
             self.pred_cameras.append(camera)
@@ -305,9 +306,9 @@ class Scene:
             # Transform to camera space
             verts_camera = camera.extrinsics.transform(verts)
 
-            # Skip if behind camera
-            if verts_camera[..., 2].max() > 0:
-                continue
+            # # Skip if behind camera
+            # if verts_camera[..., 2].max() > 0:
+            #     continue
 
             # Get face vertices in camera space
             face_vertices_camera = kaolin.ops.mesh.index_vertices_by_faces(
@@ -331,7 +332,9 @@ class Scene:
             )
 
             # Keep closest depth
-            depth_map = torch.maximum(depth_map, obj_depth[..., 0].clamp(max=0))
+            obj_depth = obj_depth[..., 0]  # Get the depth values
+            obj_depth[obj_depth == 0] = camera.far  # Replace zeros with far
+            depth_map = torch.maximum(depth_map, obj_depth)
 
         return depth_map.squeeze()  # Ensure [H, W]
 

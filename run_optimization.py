@@ -140,7 +140,7 @@ def main():
     # TODO: Add optimization loop here
     # For now just save a few iterations with random changes
     print("Simulating optimization...")
-    for i in range(1, 5):
+    for i in range(1, 2):
         # Add random changes to predicted positions
         scene.pred_positions += torch.randn_like(scene.pred_positions) * 0.01
 
