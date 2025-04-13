@@ -4,25 +4,24 @@
 import * as THREE from 'three';
 
 /**
- * Convert from camera space (-Z forward) to Three.js space (+Z forward)
- * Note: Points are already in camera space (camera at origin, -Z forward)
- * We don't need to flip Z since the camera transform will handle orientation
+ * Pass through points unchanged since they're already in camera space
+ * Points are in camera space (-Z forward), which matches Three.js camera convention
  */
 export function transformToThreeSpace(points) {
     if (!Array.isArray(points)) {
         console.warn('transformToThreeSpace: input is not an array');
         return [];
     }
-    const transformed = points.map(point => {
+    // Just validate points and filter out invalid ones
+    const filtered = points.filter(point => {
         if (!Array.isArray(point) || point.length !== 3) {
             console.warn('transformToThreeSpace: skipping invalid point:', point);
-            return null;
+            return false;
         }
-        // Keep points in camera space, let camera transform handle orientation
-        return [point[0], point[1], point[2]];
-    }).filter(point => point !== null);
-    console.log(`transformToThreeSpace: transformed ${transformed.length} points`);
-    return transformed;
+        return true;
+    });
+    console.log(`transformToThreeSpace: validated ${filtered.length} points`);
+    return filtered;
 }
 
 
@@ -41,9 +40,9 @@ export function createPointCloud(points, options = {}) {
 
     // Fill positions array
     for (let i = 0; i < points.length; i++) {
-        positions[i * 3] = points[i].x;
-        positions[i * 3 + 1] = points[i].y;
-        positions[i * 3 + 2] = points[i].z;
+        positions[i * 3] = points[i][0];     // x
+        positions[i * 3 + 1] = points[i][1];  // y
+        positions[i * 3 + 2] = points[i][2];  // z
     }
 
     geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));

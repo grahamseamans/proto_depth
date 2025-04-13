@@ -5,8 +5,7 @@ import * as THREE from 'three';
 
 /**
  * Create a camera frustum visualization
- * @param {Array|THREE.Vector3} position - Position of the camera
- * @param {Array|THREE.Vector3} rotation - Rotation of the camera (euler angles)
+ * @param {THREE.Matrix4} transform - Camera-to-world transform matrix
  * @param {Object} options - Visualization options
  * @param {number} options.color - Color of the frustum (default: 0x0000ff)
  * @param {number} options.opacity - Opacity of the frustum (default: 0.3)
@@ -14,72 +13,44 @@ import * as THREE from 'three';
  * @param {number} options.aspect - Aspect ratio (default: 1.0)
  * @param {number} options.near - Near plane distance (default: 0.1)
  * @param {number} options.far - Far plane distance (default: 1.0)
- * @returns {THREE.LineSegments} The created frustum visualization
+ * @param {boolean} options.showLookAt - Whether to show look-at line (default: true)
+ * @returns {THREE.Group} Group containing frustum and look-at line
  */
-export function createFrustum(position, rotation, options = {}) {
-    // Convert position array to Vector3 if needed
-    if (Array.isArray(position)) {
-        position = new THREE.Vector3(...position);
-    }
-
-    // Convert rotation array to direction vector
-    let direction;
-    if (Array.isArray(rotation)) {
-        // Create direction vector from euler angles (camera looks down -Z)
-        const euler = new THREE.Euler(rotation[0], rotation[1], rotation[2], 'YXZ');
-        direction = new THREE.Vector3(0, 0, -1).applyEuler(euler);
-    } else {
-        // Assume rotation is already a direction vector
-        direction = rotation;
-    }
+export function createFrustum(transform, options = {}) {
     const {
         color = 0x0000ff,
         opacity = 0.3,
         fov = 60,
         aspect = 1.0,
         near = 0.1,
-        far = 0.5,
-        lineWidth = 0.005  // Width of the frustum lines
+        far = 0.3,  // Increased far plane to match scene scale
+        lineWidth = 0.005,  // Width of the frustum lines
+        showLookAt = true
     } = options;
 
-    // Calculate frustum corners
+    // Create group to hold all visualization elements
+    const group = new THREE.Group();
+
+    // Calculate frustum corners in camera space
     const halfHeight = Math.tan(fov * Math.PI / 360) * far;
     const halfWidth = halfHeight * aspect;
 
-    // Create up vector (assuming Y-up)
-    const up = new THREE.Vector3(0, 1, 0);
+    // Create frustum corners in camera space (origin at 0,0,0, looking down -Z)
+    const farTopLeft = new THREE.Vector3(-halfWidth, halfHeight, -far);
+    const farTopRight = new THREE.Vector3(halfWidth, halfHeight, -far);
+    const farBottomLeft = new THREE.Vector3(-halfWidth, -halfHeight, -far);
+    const farBottomRight = new THREE.Vector3(halfWidth, -halfHeight, -far);
+    const origin = new THREE.Vector3(0, 0, 0);
 
-    // Calculate frustum corners
-    const farCenter = new THREE.Vector3().copy(position).add(
-        new THREE.Vector3().copy(direction).multiplyScalar(far)
-    );
+    // Apply camera transform to all points
+    [farTopLeft, farTopRight, farBottomLeft, farBottomRight].forEach(point => {
+        point.applyMatrix4(transform);
+    });
 
-    const right = new THREE.Vector3().crossVectors(direction, up).normalize();
-    const upVec = new THREE.Vector3().crossVectors(right, direction).normalize();
+    // Get camera position from transform matrix
+    const position = new THREE.Vector3().setFromMatrixPosition(transform);
 
-    const farTopLeft = new THREE.Vector3()
-        .copy(farCenter)
-        .add(right.clone().multiplyScalar(-halfWidth))
-        .add(upVec.clone().multiplyScalar(halfHeight));
-
-    const farTopRight = new THREE.Vector3()
-        .copy(farCenter)
-        .add(right.clone().multiplyScalar(halfWidth))
-        .add(upVec.clone().multiplyScalar(halfHeight));
-
-    const farBottomLeft = new THREE.Vector3()
-        .copy(farCenter)
-        .add(right.clone().multiplyScalar(-halfWidth))
-        .add(upVec.clone().multiplyScalar(-halfHeight));
-
-    const farBottomRight = new THREE.Vector3()
-        .copy(farCenter)
-        .add(right.clone().multiplyScalar(halfWidth))
-        .add(upVec.clone().multiplyScalar(-halfHeight));
-
-
-    // Create geometry for the frustum outline - proper pyramid shape
-    const geometry = new THREE.BufferGeometry();
+    // Create geometry for the frustum outline
     const outlineVertices = new Float32Array([
         // Lines from camera position to far corners (pyramid edges)
         ...position.toArray(), ...farTopLeft.toArray(),
@@ -94,14 +65,12 @@ export function createFrustum(position, rotation, options = {}) {
         ...farBottomLeft.toArray(), ...farTopLeft.toArray(),
     ]);
 
-    geometry.setAttribute('position', new THREE.BufferAttribute(outlineVertices, 3));
-
-    // Create tube geometry directly from our line segments
+    // Create tube geometry for frustum lines
     const tubeGeometry = new THREE.BufferGeometry();
     const tubeVertices = [];
     const tubeIndices = [];
 
-    // For each line segment (every 6 values in outlineVertices is a line: start[xyz] end[xyz])
+    // For each line segment
     for (let i = 0; i < outlineVertices.length; i += 6) {
         const start = new THREE.Vector3(
             outlineVertices[i],
@@ -113,12 +82,12 @@ export function createFrustum(position, rotation, options = {}) {
             outlineVertices[i + 4],
             outlineVertices[i + 5]
         );
-        const direction = end.clone().sub(start).normalize();
-        const perpendicular = new THREE.Vector3().crossVectors(direction, new THREE.Vector3(0, 1, 0)).normalize();
+        const segDir = end.clone().sub(start).normalize();
+        const perpendicular = new THREE.Vector3().crossVectors(segDir, new THREE.Vector3(0, 1, 0)).normalize();
         if (perpendicular.lengthSq() === 0) {
             perpendicular.set(1, 0, 0);
         }
-        const perpendicular2 = new THREE.Vector3().crossVectors(direction, perpendicular).normalize();
+        const perpendicular2 = new THREE.Vector3().crossVectors(segDir, perpendicular).normalize();
 
         // Create four vertices around each line point
         const baseIndex = tubeVertices.length / 3;
@@ -150,8 +119,7 @@ export function createFrustum(position, rotation, options = {}) {
     tubeGeometry.setIndex(tubeIndices);
     tubeGeometry.computeVertexNormals();
 
-
-    // Create material and mesh
+    // Create material and mesh for frustum
     const material = new THREE.MeshBasicMaterial({
         color,
         transparent: true,
@@ -159,5 +127,41 @@ export function createFrustum(position, rotation, options = {}) {
         side: THREE.DoubleSide
     });
 
-    return new THREE.Mesh(tubeGeometry, material);
+    const frustumMesh = new THREE.Mesh(tubeGeometry, material);
+    group.add(frustumMesh);
+
+    // Add look-at line if enabled
+    if (showLookAt) {
+        const lineGeometry = new THREE.BufferGeometry();
+        // Create look-at point by transforming a point 1 unit down -Z in camera space
+        const lookAt = new THREE.Vector3(0, 0, -1).applyMatrix4(transform);
+        const lineVertices = new Float32Array([
+            ...position.toArray(),
+            ...lookAt.toArray()
+        ]);
+        lineGeometry.setAttribute('position', new THREE.BufferAttribute(lineVertices, 3));
+
+        const lineMaterial = new THREE.LineBasicMaterial({
+            color,
+            transparent: true,
+            opacity: opacity * 0.7,  // Slightly more transparent
+            linewidth: 1
+        });
+
+        const lookAtLine = new THREE.Line(lineGeometry, lineMaterial);
+        group.add(lookAtLine);
+
+        // Add small sphere at look-at point
+        const sphereGeometry = new THREE.SphereGeometry(lineWidth * 2, 8, 8);
+        const sphereMaterial = new THREE.MeshBasicMaterial({
+            color,
+            transparent: true,
+            opacity: opacity * 0.7
+        });
+        const sphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
+        sphere.position.copy(lookAt);
+        group.add(sphere);
+    }
+
+    return group;
 }

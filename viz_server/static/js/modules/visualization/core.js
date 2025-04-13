@@ -11,11 +11,13 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 export function createScene() {
     const scene = new THREE.Scene();
 
-    // Add default lighting
-    const ambientLight = new THREE.AmbientLight(0x404040);
-    const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5);
-    directionalLight.position.set(1, 1, 1);
-    scene.add(ambientLight, directionalLight);
+    // Add brighter lighting from multiple directions
+    const ambientLight = new THREE.AmbientLight(0x808080);  // Brighter ambient light
+    const directionalLight1 = new THREE.DirectionalLight(0xffffff, 0.8);
+    const directionalLight2 = new THREE.DirectionalLight(0xffffff, 0.5);
+    directionalLight1.position.set(1, 1, 1);
+    directionalLight2.position.set(-1, -1, -1);
+    scene.add(ambientLight, directionalLight1, directionalLight2);
 
     return scene;
 }
@@ -92,12 +94,23 @@ export function createOrbitControls(camera, domElement, options = {}) {
  */
 export function setupVisualization(container, options = {}) {
     const scene = createScene();
-    const camera = createCamera(options.camera);
+
+    // Create camera with better defaults for our scene scale
+    const camera = createCamera({
+        fov: 60,
+        near: 0.01,
+        far: 10,
+        ...options.camera
+    });
+    camera.position.set(0, 1, 3);
+    camera.lookAt(0, 0, 0);
+
     const renderer = createRenderer(options.renderer);
     const controls = createOrbitControls(camera, renderer.domElement, options.controls);
 
-    // Add renderer to container
+    // Add renderer to container and set background color
     container.appendChild(renderer.domElement);
+    renderer.setClearColor(0x111111);  // Dark gray background
 
     // Setup animation loop
     function animate() {

@@ -93,84 +93,85 @@ export class VisualizationManager {
             // Clear current scene
             this.clearScene();
 
-            // Helper to create camera transform matrix
-            function createCameraTransform(pos, rot) {
-                const rotMatrix = new THREE.Matrix4();
-                const euler = new THREE.Euler(rot[0], rot[1], rot[2], 'YXZ');
-                rotMatrix.makeRotationFromEuler(euler);
-
-                const transMatrix = new THREE.Matrix4();
-                transMatrix.makeTranslation(pos[0], pos[1], pos[2]);
-
-                const transform = new THREE.Matrix4();
-                transform.multiplyMatrices(transMatrix, rotMatrix);
-                return transform;
-            }
-
-            // Helper to transform points using a camera transform
-            function transformPoints(points, transform) {
-                return points.map(point => {
-                    const vec = new THREE.Vector3(point[0], point[1], point[2]);
-                    vec.applyMatrix4(transform);
-                    return [vec.x, vec.y, vec.z];
-                });
-            }
-
-            // Create array of camera pairs [true, pred]
-            const cameras = frameData.true?.camera?.positions.map((_, i) => ({
-                true: {
-                    pos: frameData.true.camera.positions[i],
-                    rot: frameData.true.camera.rotations[i],
-                    transform: createCameraTransform(
-                        frameData.true.camera.positions[i],
-                        frameData.true.camera.rotations[i]
-                    ).invert()
-                },
-                pred: {
-                    pos: frameData.pred.camera.positions[i],
-                    rot: frameData.pred.camera.rotations[i],
-                    transform: createCameraTransform(
-                        frameData.pred.camera.positions[i],
-                        frameData.pred.camera.rotations[i]
-                    ).invert()
-                }
-            })) || [];
 
             // Process each camera pair
-            cameras.forEach((camera, i) => {
+            const trueCameras = frameData.true?.camera?.transforms?.length || 0;
+            const predCameras = frameData.pred?.camera?.transforms?.length || 0;
+
+            if (trueCameras === 0 || predCameras === 0) {
+                throw new Error('No cameras found in frame data');
+            }
+            if (trueCameras !== predCameras) {
+                throw new Error(`Mismatched number of cameras: true=${trueCameras}, pred=${predCameras}`);
+            }
+
+            for (let i = 0; i < trueCameras; i++) {
+                // Get camera transforms - now directly accessing 4x4 matrix array
+                const trueMatrix = frameData.true.camera.transforms[i];
+                const predMatrix = frameData.pred.camera.transforms[i];
+
+                // Convert to column-major format for THREE.js
+                const trueMatrixArray = [];
+                const predMatrixArray = [];
+                for (let col = 0; col < 4; col++) {
+                    for (let row = 0; row < 4; row++) {
+                        trueMatrixArray.push(trueMatrix[row][col]);
+                        predMatrixArray.push(predMatrix[row][col]);
+                    }
+                }
+
+                const trueTransform = new THREE.Matrix4().fromArray(trueMatrixArray);
+                const predTransform = new THREE.Matrix4().fromArray(predMatrixArray);
+
+                console.log(`Camera ${i} transforms:`, {
+                    true: frameData.true.camera.transforms[i],
+                    pred: frameData.pred.camera.transforms[i]
+                });
+
                 // Add frustums
-                const trueFrustum = this.addFrustum(camera.true.pos, camera.true.rot, {
+                const trueFrustum = this.addFrustum(trueTransform, {
                     color: 0x0000ff,
-                    opacity: 0.3
+                    opacity: 0.3,
+                    showLookAt: true
                 });
                 trueFrustum.visible = this.showFrustums;
                 this.frustums.push(trueFrustum);
 
-                const predFrustum = this.addFrustum(camera.pred.pos, camera.pred.rot, {
+                const predFrustum = this.addFrustum(predTransform, {
                     color: 0xff0000,
-                    opacity: 0.3
+                    opacity: 0.3,
+                    showLookAt: true
                 });
                 predFrustum.visible = this.showFrustums;
                 this.frustums.push(predFrustum);
 
                 // Get this camera's point cloud
-                const pointCloud = frameData.point_clouds?.[i];
-                if (!Array.isArray(pointCloud) || pointCloud.length === 0) {
-                    console.warn(`Point cloud ${i} is empty or not an array`);
-                    return;
+                if (!frameData.point_clouds || !Array.isArray(frameData.point_clouds)) {
+                    throw new Error('No point clouds found in frame data');
                 }
 
-                const points = pointCloud[0];
-                if (!Array.isArray(points)) {
-                    console.warn(`Point cloud ${i} inner data is not an array`);
-                    return;
+                const pointClouds = frameData.point_clouds[i];
+                if (!Array.isArray(pointClouds) || pointClouds.length === 0) {
+                    throw new Error(`Point cloud ${i} is empty or not an array`);
                 }
+
+                // Get the first point cloud for this camera
+                const points = pointClouds[0];
+                if (!Array.isArray(points)) {
+                    throw new Error(`Point cloud ${i} inner data is not an array`);
+                }
+
+                console.log(`Processing point cloud ${i} with ${points.length} points`);
 
                 // Transform points to Three.js coordinate system
                 const threePoints = transformToThreeSpace(points);
 
-                // Show points with true transform (green)
-                const trueWorldPoints = transformPoints(threePoints, camera.true.transform);
+                // Show points with true camera transform (green)
+                const trueWorldPoints = threePoints.map(point => {
+                    const vec = new THREE.Vector3(...point);
+                    vec.applyMatrix4(trueTransform);
+                    return [vec.x, vec.y, vec.z];
+                });
                 const trueCloud = this.addPointCloud(trueWorldPoints, {
                     color: 0x00ff00,
                     opacity: 0.7,
@@ -181,8 +182,12 @@ export class VisualizationManager {
                     this.pointClouds.push(trueCloud);
                 }
 
-                // Show points with pred transform (red)
-                const predWorldPoints = transformPoints(threePoints, camera.pred.transform);
+                // Show points with predicted camera transform (red)
+                const predWorldPoints = threePoints.map(point => {
+                    const vec = new THREE.Vector3(...point);
+                    vec.applyMatrix4(predTransform);
+                    return [vec.x, vec.y, vec.z];
+                });
                 const predCloud = this.addPointCloud(predWorldPoints, {
                     color: 0xff0000,
                     opacity: 0.7,
@@ -192,7 +197,7 @@ export class VisualizationManager {
                     predCloud.visible = this.showPointClouds;
                     this.pointClouds.push(predCloud);
                 }
-            });
+            }
 
             // Add object meshes if bunny data is loaded (new format: true.objects and pred.objects)
             if (this.bunnyMeshData) {
@@ -304,8 +309,8 @@ export class VisualizationManager {
         return addPointCloudToScene(this.scene, points, options);
     }
 
-    addFrustum(position, rotation, options = {}) {
-        const frustum = createFrustum(position, rotation, options);
+    addFrustum(transform, options = {}) {
+        const frustum = createFrustum(transform, options);
         this.scene.add(frustum);
         return frustum;
     }
