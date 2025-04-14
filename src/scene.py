@@ -12,7 +12,7 @@ import kaolin.io.obj
 import kaolin.metrics.pointcloud as kaolin_metrics
 from kaolin.render.camera import Camera
 
-from .point_cloud import render_depth_and_pointcloud
+from .point_cloud import render_depth_and_pointcloud, render_pointcloud_o3d, O3DCamera
 
 
 class Scene:
@@ -25,6 +25,7 @@ class Scene:
     true_cameras: List[Camera]
     pred_cameras: List[Camera]
     camera_positions: torch.Tensor
+    o3d_cameras: list  # List[O3DCamera]
 
     # Scene state tensors
     true_positions: torch.Tensor  # [num_frames, num_objects, 3]
@@ -77,6 +78,7 @@ class Scene:
 
         # Create true cameras looking at origin
         self.true_cameras = []
+        self.o3d_cameras = []
         for pos in self.camera_positions:
             camera = Camera.from_args(
                 eye=pos,
@@ -90,6 +92,17 @@ class Scene:
                 device=device,
             )
             self.true_cameras.append(camera)
+            # Add corresponding O3DCamera
+            self.o3d_cameras.append(
+                O3DCamera(
+                    eye=pos.tolist(),
+                    center=[0.0, 0.0, 0.0],
+                    up=[0.0, 1.0, 0.0],
+                    fov=60.0,
+                    width=256,
+                    height=256,
+                )
+            )
 
         # True scene state over time (what actually exists)
         self.true_positions = torch.zeros(num_frames, num_objects, 3, device=device)
@@ -231,10 +244,10 @@ class Scene:
             frame_idx: Which frame to get clouds for
         """
         point_clouds = []
-        for camera in self.true_cameras:
-            # Get depth map and point cloud from true scene state
-            points = render_depth_and_pointcloud(
-                camera,
+        for o3d_camera in self.o3d_cameras:
+            # Get point cloud from true scene state using Open3D camera
+            points = render_pointcloud_o3d(
+                o3d_camera,
                 self.true_mesh_verts,
                 self.true_mesh_faces,
                 self.true_positions[frame_idx],
@@ -266,7 +279,7 @@ class Scene:
             target_world = self.pred_cameras[i].extrinsics.transform(target)
 
             # Get predicted points from this camera view
-            _, pred_points = render_depth_and_pointcloud(
+            pred_points = render_depth_and_pointcloud(
                 self.pred_cameras[i],
                 self.pred_mesh_verts,
                 self.pred_mesh_faces,

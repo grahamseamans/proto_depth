@@ -5,9 +5,20 @@ Point cloud operations for 4D reality learning system.
 import torch
 import numpy as np
 import open3d as o3d
+from dataclasses import dataclass
 from .utils import transform_vertices
 from kaolin.render.camera import Camera
 import nvdiffrast.torch as nvdiff
+
+
+@dataclass
+class O3DCamera:
+    eye: list  # [x, y, z]
+    center: list  # [x, y, z]
+    up: list  # [x, y, z]
+    fov: float  # degrees
+    width: int
+    height: int
 
 
 # def depth_to_pointcloud(depth_map: torch.Tensor, camera: Camera) -> torch.Tensor:
@@ -164,8 +175,8 @@ def render_depth_and_pointcloud(
     return points
 
 
-def render_depth_and_pointcloud_2(
-    camera: Camera,
+def render_pointcloud_o3d(
+    o3d_camera: O3DCamera,
     vertices: torch.Tensor,
     faces: torch.Tensor,
     positions: torch.Tensor,
@@ -173,13 +184,11 @@ def render_depth_and_pointcloud_2(
     scales: torch.Tensor,
     device: torch.device,
 ) -> torch.Tensor:
-    """Get point cloud through Open3D rendering"""
+    """Render a point cloud from a mesh using Open3D RaycastingScene and explicit camera parameters."""
 
-    # Convert to numpy for Open3D
-    vertices_np = vertices.cpu().numpy()
-    faces_np = faces.cpu().numpy()
+    print("open3d cuda:", o3d.core.cuda.is_available())  # Should return True
 
-    # Transform vertices to world space
+    # Transform vertices to world space (N, 3)
     verts_all = (
         transform_vertices(
             vertices,
@@ -191,38 +200,59 @@ def render_depth_and_pointcloud_2(
         .cpu()
         .numpy()
     )
+    faces_np = faces.cpu().numpy().astype(np.int32)
 
-    # Create Open3D mesh
-    mesh = o3d.geometry.TriangleMesh()
-    mesh.vertices = o3d.utility.Vector3dVector(verts_all)
-    mesh.triangles = o3d.utility.Vector3iVector(faces_np)
+    # Print mesh centroid and bounding box
+    mesh_centroid = verts_all.mean(axis=0)
+    mesh_min = verts_all.min(axis=0)
+    mesh_max = verts_all.max(axis=0)
+    print("Mesh centroid:", mesh_centroid)
+    print("Mesh bounding box min:", mesh_min, "max:", mesh_max)
 
-    # Create Open3D camera parameters
-    intrinsic = o3d.camera.PinholeCameraIntrinsic(
-        width=256, height=256, fx=256, fy=256, cx=128, cy=128
+    # Create Open3D t.geometry TriangleMesh
+    mesh = o3d.t.geometry.TriangleMesh()
+    mesh.vertex["positions"] = o3d.core.Tensor(verts_all, dtype=o3d.core.Dtype.Float32)
+    mesh.triangle["indices"] = o3d.core.Tensor(faces_np, dtype=o3d.core.Dtype.UInt32)
+
+    # Create RaycastingScene and add mesh
+    scene = o3d.t.geometry.RaycastingScene()
+    _ = scene.add_triangles(mesh)
+
+    # Create rays for the camera using explicit parameters
+    rays = scene.create_rays_pinhole(
+        fov_deg=o3d_camera.fov,
+        center=o3d_camera.center,
+        eye=o3d_camera.eye,
+        up=o3d_camera.up,
+        width_px=o3d_camera.width,
+        height_px=o3d_camera.height,
     )
 
-    # Extract camera extrinsics from Kaolin camera
-    view_matrix = camera.extrinsics.view_matrix().squeeze(0).cpu().numpy()
-    extrinsic = np.linalg.inv(
-        view_matrix
-    )  # Open3D uses camera-to-world (inverse view matrix)
+    # Print first few ray origins and directions
+    rays_np = rays.numpy()  # (H, W, 6)
+    print("First 5 ray origins:\n", rays_np.reshape(-1, 6)[:5, :3])
+    print("First 5 ray directions:\n", rays_np.reshape(-1, 6)[:5, 3:])
 
-    # Capture depth image
-    depth = o3d.geometry.Image(np.zeros((256, 256), dtype=np.float32))
-
-    # Create scene and render
-    scene = o3d.t.geometry.RaycastingScene()
-    scene.add_triangles(o3d.t.geometry.TriangleMesh.from_legacy(mesh))
-
-    # Get rays from camera
-    rays = scene.create_rays_pinhole(intrinsic, extrinsic)
-
-    # Cast rays and get intersection points
+    # Cast rays and get intersection results
     ray_cast_results = scene.cast_rays(rays)
-    points = ray_cast_results["t_hit"].numpy()
+    t_hit = ray_cast_results["t_hit"].numpy()  # (H, W)
 
-    # Convert back to torch tensor
+    # Print number of rays that hit the mesh
+    num_rays = t_hit.size
+    num_hits = np.isfinite(t_hit).sum()
+    print(f"Number of rays: {num_rays}, Number of hits: {num_hits}")
+
+    origins = rays_np[..., :3]
+    directions = rays_np[..., 3:]
+
+    # Compute intersection points: origin + direction * t_hit
+    points = origins + directions * t_hit[..., None]
+
+    # Filter out rays that missed (t_hit == inf)
+    mask = np.isfinite(t_hit)
+    points = points[mask]
+
+    # Convert to torch tensor on the correct device
     points = torch.from_numpy(points).to(device).reshape(-1, 3)
 
     return points
