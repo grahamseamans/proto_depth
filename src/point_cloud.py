@@ -3,6 +3,8 @@ Point cloud operations for 4D reality learning system.
 """
 
 import torch
+import numpy as np
+import open3d as o3d
 from .utils import transform_vertices
 from kaolin.render.camera import Camera
 import nvdiffrast.torch as nvdiff
@@ -47,7 +49,7 @@ def render_depth_and_pointcloud(
     rotations: torch.Tensor,
     scales: torch.Tensor,
     device: torch.device,
-) -> tuple[torch.Tensor, torch.Tensor]:
+) -> torch.Tensor:
     """Get point cloud directly through rasterization.
 
     Args:
@@ -127,17 +129,6 @@ def render_depth_and_pointcloud(
     # Get valid hits
     # valid_hits = rast[0, ..., 3] >= 0  # [H, W]
 
-    # Initialize depth map
-    depth_map = torch.full((256, 256), camera.far, device=device)
-    # depth_map[valid_hits] = -rast[0, ..., 2][valid_hits]  # Negate z for our convention
-    depth_map = rast[0, ..., 2]  # Negate z for our convention
-    print(f"Depth map shape: {depth_map.shape}")
-    # print min max mean ... of depth map
-    print(f"Depth map min: {depth_map.min()}")
-    print(f"Depth map max: {depth_map.max()}")
-    print(f"Depth map mean: {depth_map.mean()}")
-    print(f"Depth map std: {depth_map.std()}")
-
     # if valid_hits.sum() > 0:
     # Get barycentric coords
     # bary_u = rast[0, ..., 0][valid_hits]  # [K]
@@ -170,4 +161,68 @@ def render_depth_and_pointcloud(
     # else:
     #     points = torch.zeros((0, 3), device=device)
 
-    return depth_map, points
+    return points
+
+
+def render_depth_and_pointcloud_2(
+    camera: Camera,
+    vertices: torch.Tensor,
+    faces: torch.Tensor,
+    positions: torch.Tensor,
+    rotations: torch.Tensor,
+    scales: torch.Tensor,
+    device: torch.device,
+) -> torch.Tensor:
+    """Get point cloud through Open3D rendering"""
+
+    # Convert to numpy for Open3D
+    vertices_np = vertices.cpu().numpy()
+    faces_np = faces.cpu().numpy()
+
+    # Transform vertices to world space
+    verts_all = (
+        transform_vertices(
+            vertices,
+            positions[0],
+            rotations[0],
+            scales[0],
+            device,
+        )
+        .cpu()
+        .numpy()
+    )
+
+    # Create Open3D mesh
+    mesh = o3d.geometry.TriangleMesh()
+    mesh.vertices = o3d.utility.Vector3dVector(verts_all)
+    mesh.triangles = o3d.utility.Vector3iVector(faces_np)
+
+    # Create Open3D camera parameters
+    intrinsic = o3d.camera.PinholeCameraIntrinsic(
+        width=256, height=256, fx=256, fy=256, cx=128, cy=128
+    )
+
+    # Extract camera extrinsics from Kaolin camera
+    view_matrix = camera.extrinsics.view_matrix().squeeze(0).cpu().numpy()
+    extrinsic = np.linalg.inv(
+        view_matrix
+    )  # Open3D uses camera-to-world (inverse view matrix)
+
+    # Capture depth image
+    depth = o3d.geometry.Image(np.zeros((256, 256), dtype=np.float32))
+
+    # Create scene and render
+    scene = o3d.t.geometry.RaycastingScene()
+    scene.add_triangles(o3d.t.geometry.TriangleMesh.from_legacy(mesh))
+
+    # Get rays from camera
+    rays = scene.create_rays_pinhole(intrinsic, extrinsic)
+
+    # Cast rays and get intersection points
+    ray_cast_results = scene.cast_rays(rays)
+    points = ray_cast_results["t_hit"].numpy()
+
+    # Convert back to torch tensor
+    points = torch.from_numpy(points).to(device).reshape(-1, 3)
+
+    return points

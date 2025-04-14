@@ -9,8 +9,6 @@ from pathlib import Path
 import urllib.request
 from typing import List
 import kaolin.io.obj
-import kaolin.ops.mesh
-import kaolin.render.mesh as mesh_render
 import kaolin.metrics.pointcloud as kaolin_metrics
 from kaolin.render.camera import Camera
 
@@ -235,7 +233,7 @@ class Scene:
         point_clouds = []
         for camera in self.true_cameras:
             # Get depth map and point cloud from true scene state
-            _, points = render_depth_and_pointcloud(
+            points = render_depth_and_pointcloud(
                 camera,
                 self.true_mesh_verts,
                 self.true_mesh_faces,
