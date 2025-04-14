@@ -14,7 +14,7 @@ import kaolin.render.mesh as mesh_render
 import kaolin.metrics.pointcloud as kaolin_metrics
 from kaolin.render.camera import Camera
 
-from .point_cloud import depth_to_pointcloud
+from .point_cloud import render_depth_and_pointcloud
 
 
 class Scene:
@@ -87,8 +87,8 @@ class Scene:
                 fov=60 * np.pi / 180,
                 width=256,
                 height=256,
-                near=-0.001,  # 1mm near plane
-                far=-10.0,  # 10m far plane
+                near=0.001,  # 1mm near plane
+                far=10.0,  # 10m far plane
                 device=device,
             )
             self.true_cameras.append(camera)
@@ -167,12 +167,13 @@ class Scene:
                 fov=60 * np.pi / 180,
                 width=256,
                 height=256,
-                near=-0.001,
-                far=-10.0,
+                near=0.001,
+                far=10.0,
                 device=device,
             )
             self.pred_cameras.append(camera)
 
+        # Initialize predicted mesh to true mesh - maybe learn this later
         self.pred_mesh_verts = self.true_mesh_verts
         self.pred_mesh_faces = self.true_mesh_faces
 
@@ -233,110 +234,18 @@ class Scene:
         """
         point_clouds = []
         for camera in self.true_cameras:
-            # Get depth map from true scene state at this frame
-            depth_map = self._render_depth(
+            # Get depth map and point cloud from true scene state
+            _, points = render_depth_and_pointcloud(
                 camera,
                 self.true_mesh_verts,
                 self.true_mesh_faces,
                 self.true_positions[frame_idx],
                 self.true_rotations[frame_idx],
                 self.true_scales[frame_idx],
+                self.device,
             )
-            # Convert to point cloud
-            points = depth_to_pointcloud(depth_map, camera)
             point_clouds.append(points)
         return point_clouds
-
-    def _transform_vertices(
-        self,
-        vertices: torch.Tensor,
-        position: torch.Tensor,
-        rotation: torch.Tensor,
-        scale: torch.Tensor,
-    ) -> torch.Tensor:
-        """Transform mesh vertices based on position, rotation, and scale"""
-        # Make transform matrix from position, rotation (euler angles), and scale
-        cos_r = torch.cos(rotation)
-        sin_r = torch.sin(rotation)
-
-        # Rotation matrices
-        R_x = torch.tensor(
-            [[1, 0, 0], [0, cos_r[0], -sin_r[0]], [0, sin_r[0], cos_r[0]]],
-            device=self.device,
-        )
-        R_y = torch.tensor(
-            [[cos_r[1], 0, sin_r[1]], [0, 1, 0], [-sin_r[1], 0, cos_r[1]]],
-            device=self.device,
-        )
-        R_z = torch.tensor(
-            [[cos_r[2], -sin_r[2], 0], [sin_r[2], cos_r[2], 0], [0, 0, 1]],
-            device=self.device,
-        )
-
-        # Combine into single transform
-        R = torch.matmul(torch.matmul(R_z, R_y), R_x)
-        R = R * scale  # Scale the rotation matrix
-
-        # Apply rotation and translation
-        return vertices @ R.T + position.unsqueeze(0)
-
-    def _render_depth(
-        self,
-        camera: Camera,
-        vertices: torch.Tensor,
-        faces: torch.Tensor,
-        positions: torch.Tensor,
-        rotations: torch.Tensor,
-        scales: torch.Tensor,
-    ) -> torch.Tensor:
-        """Render depth map from given scene state"""
-        # Start with far plane
-        depth_map = torch.full((256, 256), camera.far, device=self.device)
-
-        # Process each object
-        for i in range(self.num_objects):
-            # 1. Transform vertices to world space
-            verts = self._transform_vertices(
-                vertices,
-                positions[i],
-                rotations[i],
-                scales[i],
-            )
-
-            # Transform to camera space
-            verts_camera = camera.extrinsics.transform(verts)
-
-            # # Skip if behind camera
-            # if verts_camera[..., 2].max() > 0:
-            #     continue
-
-            # Get face vertices in camera space
-            face_vertices_camera = kaolin.ops.mesh.index_vertices_by_faces(
-                verts_camera, faces
-            )
-
-            # Project to screen space
-            verts_screen = camera.intrinsics.transform(verts_camera)
-            face_vertices_screen = kaolin.ops.mesh.index_vertices_by_faces(
-                verts_screen, faces
-            )
-
-            # Rasterize with raw Z values as features
-            z_vals = face_vertices_camera[..., 2]  # Raw Z values in camera space
-            obj_depth, _ = mesh_render.rasterize(
-                256,
-                256,
-                face_vertices_z=z_vals,  # For depth testing
-                face_vertices_image=face_vertices_screen[..., :2],
-                face_features=z_vals.unsqueeze(-1),  # For actual depth values
-            )
-
-            # Keep closest depth
-            obj_depth = obj_depth[..., 0]  # Get the depth values
-            obj_depth[obj_depth == 0] = camera.far  # Replace zeros with far
-            depth_map = torch.maximum(depth_map, obj_depth)
-
-        return depth_map.squeeze()  # Ensure [H, W]
 
     def compute_energy(self, frame_idx: int) -> torch.Tensor:
         """
@@ -359,15 +268,15 @@ class Scene:
             target_world = self.pred_cameras[i].extrinsics.transform(target)
 
             # Get predicted points from this camera view
-            pred_depth = self._render_depth(
+            _, pred_points = render_depth_and_pointcloud(
                 self.pred_cameras[i],
                 self.pred_mesh_verts,
                 self.pred_mesh_faces,
                 self.pred_positions[frame_idx],
                 self.pred_rotations[frame_idx],
                 self.pred_scales[frame_idx],
+                self.device,
             )
-            pred_points = depth_to_pointcloud(pred_depth, self.pred_cameras[i])
             if pred_points.ndim == 2:
                 pred_points = pred_points.unsqueeze(0)
 

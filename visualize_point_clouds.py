@@ -75,26 +75,26 @@ def visualize_point_clouds():
     camera_transforms = [np.array(transform) for transform in camera_transforms]
     point_clouds = [np.array(pc) for pc in point_clouds]
 
-    # Print camera transforms
-    print("\nCamera transforms (camera to world):")
-    for i, transform in enumerate(camera_transforms):
-        print(f"\nCamera {i}:")
-        print(
-            f"Position: [{transform[0, 3]:.3f}, {transform[1, 3]:.3f}, {transform[2, 3]:.3f}]"
-        )
-        print(
-            f"Right: [{transform[0, 0]:.3f}, {transform[1, 0]:.3f}, {transform[2, 0]:.3f}]"
-        )
-        print(
-            f"Up: [{transform[0, 1]:.3f}, {transform[1, 1]:.3f}, {transform[2, 1]:.3f}]"
-        )
-        print(
-            f"Forward: [{transform[0, 2]:.3f}, {transform[1, 2]:.3f}, {transform[2, 2]:.3f}]"
-        )
-        # Print inverse (world to camera) matrix
-        world2cam = np.linalg.inv(transform)
-        print("\nWorld to camera matrix:")
-        print(world2cam)
+    # # Print camera transforms
+    # print("\nCamera transforms (camera to world):")
+    # for i, transform in enumerate(camera_transforms):
+    #     print(f"\nCamera {i}:")
+    #     print(
+    #         f"Position: [{transform[0, 3]:.3f}, {transform[1, 3]:.3f}, {transform[2, 3]:.3f}]"
+    #     )
+    #     print(
+    #         f"Right: [{transform[0, 0]:.3f}, {transform[1, 0]:.3f}, {transform[2, 0]:.3f}]"
+    #     )
+    #     print(
+    #         f"Up: [{transform[0, 1]:.3f}, {transform[1, 1]:.3f}, {transform[2, 1]:.3f}]"
+    #     )
+    #     print(
+    #         f"Forward: [{transform[0, 2]:.3f}, {transform[1, 2]:.3f}, {transform[2, 2]:.3f}]"
+    #     )
+    #     # Print inverse (world to camera) matrix
+    #     world2cam = np.linalg.inv(transform)
+    #     print("\nWorld to camera matrix:")
+    #     print(world2cam)
 
     # Transform each point cloud to world space
     world_clouds = []
@@ -106,7 +106,7 @@ def visualize_point_clouds():
         # Add homogeneous coordinate (w=1)
         points_h = np.concatenate([points, np.ones((len(points), 1))], axis=1)  # [N, 4]
 
-        # Transform points from camera to world space using camera-to-world matrix
+        # Transform points from camera to world space using cam2world matrix
         points_world_h = transform @ points_h.T  # [4, N]
         points_world_h = points_world_h.T  # [N, 4]
 
@@ -137,8 +137,8 @@ def visualize_point_clouds():
             colors.append([3 * (hue - 2 / 3), 0, 1 - 3 * (hue - 2 / 3)])  # Blue to Red
 
     # Add each point cloud in world space
-    for i, points in enumerate(world_clouds):
-        # for i, points in enumerate(point_clouds):
+    # for i, points in enumerate(world_clouds):
+    for i, points in enumerate(point_clouds):
         # Create and add colored point cloud
         pcd = create_point_cloud(points, colors[i])
         vis.add_geometry(pcd)
@@ -151,8 +151,8 @@ def visualize_point_clouds():
     base_arrow = o3d.geometry.TriangleMesh.create_arrow(
         cylinder_radius=0.02,
         cone_radius=0.04,
-        cylinder_height=0.5,
-        cone_height=0.2,
+        cylinder_height=0.1,
+        cone_height=0.05,
     )
     R = np.array([[1, 0, 0], [0, -1, 0], [0, 0, -1]])
 

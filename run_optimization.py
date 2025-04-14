@@ -13,8 +13,8 @@ from src import Scene
 
 def save_frame_json(
     out_path,
-    true_camera_transforms,
-    pred_camera_transforms,
+    true_cam2world,
+    pred_cam2world,
     true_object_positions,
     true_object_rotations,
     true_object_scales,
@@ -26,7 +26,7 @@ def save_frame_json(
     """Write a single frame's data to a JSON file."""
     data = {
         "true": {
-            "camera": {"transforms": true_camera_transforms},
+            "camera": {"transforms": true_cam2world},
             "objects": {
                 "positions": true_object_positions,
                 "rotations": true_object_rotations,
@@ -34,7 +34,7 @@ def save_frame_json(
             },
         },
         "pred": {
-            "camera": {"transforms": pred_camera_transforms},
+            "camera": {"transforms": pred_cam2world},
             "objects": {
                 "positions": pred_object_positions,
                 "rotations": pred_object_rotations,
@@ -62,11 +62,11 @@ def save_iteration_data(scene: Scene, iteration, output_dir):
         # Gather required data for the new spec
         # True camera/object params
         # Get camera transforms - ensure single list level for 4x4 matrices
-        true_camera_transforms = [
+        true_cam2world = [
             camera.extrinsics.inv_view_matrix().squeeze().cpu().tolist()
             for camera in scene.true_cameras
         ]
-        pred_camera_transforms = [
+        pred_cam2world = [
             camera.extrinsics.inv_view_matrix().squeeze().cpu().tolist()
             for camera in scene.pred_cameras
         ]
@@ -87,8 +87,8 @@ def save_iteration_data(scene: Scene, iteration, output_dir):
         # Save frame data
         save_frame_json(
             str(iter_dir / f"frame_{frame:04d}.json"),
-            true_camera_transforms,
-            pred_camera_transforms,
+            true_cam2world,
+            pred_cam2world,
             true_object_positions,
             true_object_rotations,
             true_object_scales,
