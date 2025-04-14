@@ -150,10 +150,12 @@ def render_depth_and_pointcloud(
     # tri_idx = rast[0, ..., 3][valid_hits].long()  # [K]
     tri_idx = rast[0, ..., 3].long()  # [K]
 
+    # point clouds are in camera space by design
     # Get triangle vertices from world space mesh
-    v0 = verts_all[faces_all[tri_idx, 0]]  # [K, 3]
-    v1 = verts_all[faces_all[tri_idx, 1]]  # [K, 3]
-    v2 = verts_all[faces_all[tri_idx, 2]]  # [K, 3]
+    verts_cam = verts_cam[..., :3]  # Drop homogeneous coordinate
+    v0 = verts_cam[faces_all[tri_idx, 0]]  # [K, 3]
+    v1 = verts_cam[faces_all[tri_idx, 1]]  # [K, 3]
+    v2 = verts_cam[faces_all[tri_idx, 2]]  # [K, 3]
 
     # Interpolate points in world space
     points = (
