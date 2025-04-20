@@ -137,8 +137,8 @@ def visualize_point_clouds():
             colors.append([3 * (hue - 2 / 3), 0, 1 - 3 * (hue - 2 / 3)])  # Blue to Red
 
     # Add each point cloud in world space
-    # for i, points in enumerate(world_clouds):
-    for i, points in enumerate(point_clouds):
+    for i, points in enumerate(world_clouds):
+        # for i, points in enumerate(point_clouds):
         # Create and add colored point cloud
         pcd = create_point_cloud(points, colors[i])
         vis.add_geometry(pcd)

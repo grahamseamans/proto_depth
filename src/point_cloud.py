@@ -255,4 +255,24 @@ def render_pointcloud_o3d(
     # Convert to torch tensor on the correct device
     points = torch.from_numpy(points).to(device).reshape(-1, 3)
 
-    return points
+    # Transform points from world space to camera space using new world2cam matrix
+    from .utils import compute_camera_extrinsics
+
+    world2cam, _ = compute_camera_extrinsics(
+        eye=o3d_camera.eye,
+        center=o3d_camera.center,
+        up=o3d_camera.up,
+        device=points.device,
+        dtype=points.dtype,
+    )
+    # Convert to homogeneous coordinates
+    points_h = torch.cat(
+        [
+            points,
+            torch.ones(points.shape[0], 1, device=points.device, dtype=points.dtype),
+        ],
+        dim=1,
+    )
+    points_cam = (world2cam @ points_h.T).T[:, :3]
+
+    return points_cam
