@@ -66,7 +66,7 @@ def visualize_point_clouds():
     # Get camera transforms and point clouds
     camera_transforms = data["true"]["camera"]["transforms"]
     # create idenity camera transform
-    camera_transforms = [np.eye(4) for _ in range(len(data["point_clouds"]))]
+    # camera_transforms = [np.eye(4) for _ in range(len(data["point_clouds"]))]
 
     point_clouds = data["point_clouds"]
 

@@ -198,6 +198,7 @@ def render_pointcloud(
         vertices, positions[0], rotations[0], scales[0], device
     )
     faces_all = faces.contiguous().to(torch.int64)
+    faces_all = faces_all[:, [0, 2, 1]]  # swap v1 and v2 for every triangle
 
     # World -> Camera space (homogeneous)
     verts_h = torch.cat(
@@ -215,12 +216,11 @@ def render_pointcloud(
     # Per-face vertices
     face_vs = verts_ndc_h[faces_all]  # [F,3,4]
     face_xy = face_vs[..., :2]  # [F,3,2]
-    face_z = face_vs[..., 2]  # [F,3]
-
-    # Features: camera-space xyz
+    # Features: camera-space xyz and depth
     face_xyz = verts_cam[faces_all, :3]  # [F,3,3]
+    face_z = face_xyz[..., 2]  # [F,3]
 
-    # # Backface culling in camera space
+    # # Frontface culling in camera space
     # v0 = face_xyz[:, 0, :]
     # v1 = face_xyz[:, 1, :]
     # v2 = face_xyz[:, 2, :]
@@ -228,7 +228,7 @@ def render_pointcloud(
     # normals = normals / (normals.norm(dim=1, keepdim=True) + 1e-8)
     # centroids = (v0 + v1 + v2) / 3
     # view_dirs = centroids / (centroids.norm(dim=1, keepdim=True) + 1e-8)
-    # facing = (normals * view_dirs).sum(dim=1) > 0  # [F]
+    # facing = (normals * view_dirs).sum(dim=1) < 0  # [F]  (frontface culling)
     # valid_faces = facing.unsqueeze(0)  # [1, F]
 
     # Rasterize via Kaolin CUDA backend
