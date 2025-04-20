@@ -193,17 +193,33 @@ def render_pointcloud(
     Returns:
         points: [N,3] tensor of 3D points in camera space.
     """
-    # Build mesh
-    verts_world = transform_vertices(
-        vertices, positions[0], rotations[0], scales[0], device
-    )
-    faces_all = faces.contiguous().to(torch.int64)
+
+    # Build a combined mesh of all objects
+    verts_list = []
+    faces_list = []
+    offset = 0
+    num_objs = positions.shape[0]
+
+    for i in range(num_objs):
+        # Transform object i to world space
+        v = transform_vertices(vertices, positions[i], rotations[i], scales[i], device)
+        verts_list.append(v)  # [V,3]
+
+        # Offset faces and collect
+        f = faces.contiguous().to(torch.int64) + offset  # [F,3]
+        faces_list.append(f)
+
+        offset += v.shape[0]
+
+    # Concatenate into mega‐mesh
+    verts_all = torch.cat(verts_list, dim=0)  # [num_objs*V,3]
+    faces_all = torch.cat(faces_list, dim=0)  # [num_objs*F,3]
+
+    faces_all = faces_all.contiguous().to(torch.int64)
     faces_all = faces_all[:, [0, 2, 1]]  # swap v1 and v2 for every triangle
 
     # World -> Camera space (homogeneous)
-    verts_h = torch.cat(
-        [verts_world, torch.ones_like(verts_world[:, :1])], dim=1
-    )  # [V,4]
+    verts_h = torch.cat([verts_all, torch.ones_like(verts_all[:, :1])], dim=1)  # [V,4]
     view = camera.extrinsics.view_matrix().squeeze(0)  # [4,4]
     verts_cam = verts_h @ view.T  # [V,4]
 
@@ -219,17 +235,6 @@ def render_pointcloud(
     # Features: camera-space xyz and depth
     face_xyz = verts_cam[faces_all, :3]  # [F,3,3]
     face_z = face_xyz[..., 2]  # [F,3]
-
-    # # Frontface culling in camera space
-    # v0 = face_xyz[:, 0, :]
-    # v1 = face_xyz[:, 1, :]
-    # v2 = face_xyz[:, 2, :]
-    # normals = torch.cross(v1 - v0, v2 - v0, dim=1)
-    # normals = normals / (normals.norm(dim=1, keepdim=True) + 1e-8)
-    # centroids = (v0 + v1 + v2) / 3
-    # view_dirs = centroids / (centroids.norm(dim=1, keepdim=True) + 1e-8)
-    # facing = (normals * view_dirs).sum(dim=1) < 0  # [F]  (frontface culling)
-    # valid_faces = facing.unsqueeze(0)  # [1, F]
 
     # Rasterize via Kaolin CUDA backend
     from kaolin.render.mesh import rasterize
