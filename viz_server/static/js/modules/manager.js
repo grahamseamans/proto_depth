@@ -17,6 +17,10 @@ export class VisualizationManager {
         this.controls = controls;
         this.container = container;
 
+        // Set initial background style based on current theme
+        const theme = document.documentElement.getAttribute('data-theme') || 'light';
+        this.setBackgroundStyle(theme);
+
         // Application state
         this.currentRun = null;
         this.currentIteration = 0;
@@ -313,5 +317,19 @@ export class VisualizationManager {
         const frustum = createFrustum(transform, options);
         this.scene.add(frustum);
         return frustum;
+    }
+
+    /**
+     * Set the 3D background color based on theme ("light" or "dark")
+     * @param {string} theme
+     */
+    setBackgroundStyle(theme) {
+        if (theme === 'dark') {
+            this.renderer.setClearColor(0x111111);
+            this.scene.background = new THREE.Color(0x111111);
+        } else {
+            this.renderer.setClearColor(0xffffff);
+            this.scene.background = new THREE.Color(0xffffff);
+        }
     }
 }

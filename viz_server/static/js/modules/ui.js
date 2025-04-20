@@ -36,6 +36,18 @@ export class UI {
             // Add event listeners
             this.setupEventListeners();
 
+            // Theme toggle: sync 3D background with theme
+            const themeToggle = document.getElementById('theme-toggle');
+            if (themeToggle) {
+                themeToggle.addEventListener('change', (e) => {
+                    const newTheme = e.target.checked ? 'dark' : 'light';
+                    this.manager.setBackgroundStyle(newTheme);
+                });
+            }
+            // Also set initial background to match current theme
+            const currentTheme = document.documentElement.getAttribute('data-theme') || 'light';
+            this.manager.setBackgroundStyle(currentTheme);
+
             // Load available runs
             this.loadRuns();
 
