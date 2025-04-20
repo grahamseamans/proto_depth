@@ -113,7 +113,7 @@ export function addMeshToScene(scene, data, options = {}) {
 export function createMeshes(objects, options = {}) {
     return objects.map((obj, index) => {
         const mesh = createMesh(obj.data, {
-            color: obj.isTrue ? 0x00ff00 : 0xff0000,
+            color: obj.color !== undefined ? obj.color : (obj.isTrue ? 0x00ff00 : 0xff0000),
             opacity: options.opacity || 0.7,
             wireframe: options.wireframe || false
         });
@@ -122,7 +122,16 @@ export function createMeshes(objects, options = {}) {
         if (obj.position) mesh.position.fromArray(obj.position);
         if (obj.rotation) mesh.rotation.fromArray(obj.rotation);
         if (obj.scale) {
-            const scale = Array.isArray(obj.scale) ? obj.scale : [obj.scale, obj.scale, obj.scale];
+            let scale = obj.scale;
+            if (Array.isArray(scale)) {
+                if (scale.length === 1) {
+                    scale = [scale[0], scale[0], scale[0]];
+                } else {
+                    throw new Error('Mesh scale must be a single value or array of length 1');
+                }
+            } else {
+                scale = [scale, scale, scale];
+            }
             mesh.scale.fromArray(scale);
         }
 

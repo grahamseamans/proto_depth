@@ -109,6 +109,23 @@ export class VisualizationManager {
                 throw new Error(`Mismatched number of cameras: true=${trueCameras}, pred=${predCameras}`);
             }
 
+            // Generate a color palette for cameras
+            function getColorPalette(n) {
+                // Evenly spaced hues in HSL, full saturation and 0.5 lightness
+                return Array.from({ length: n }, (_, k) => {
+                    const hue = Math.round((360 * k) / n);
+                    return new THREE.Color(`hsl(${hue}, 100%, 50%)`).getHex();
+                });
+            }
+            function lightenColor(hex, amount = 0.5) {
+                // amount: 0 = no change, 1 = white
+                const color = new THREE.Color(hex);
+                color.lerp(new THREE.Color(0xffffff), amount);
+                return color.getHex();
+            }
+
+            const cameraColors = getColorPalette(trueCameras);
+
             for (let i = 0; i < trueCameras; i++) {
                 // Get camera transforms - now directly accessing 4x4 matrix array
                 const trueMatrix = frameData.true.camera.transforms[i];
@@ -132,18 +149,22 @@ export class VisualizationManager {
                     pred: frameData.pred.camera.transforms[i]
                 });
 
+                // Assign base color for this camera
+                const baseColor = cameraColors[i];
+                const predColor = lightenColor(baseColor, 0.5);
+
                 // Add frustums
                 const trueFrustum = this.addFrustum(trueTransform, {
-                    color: 0x0000ff,
-                    opacity: 0.3,
+                    color: baseColor,
+                    opacity: 0.4,
                     showLookAt: true
                 });
                 trueFrustum.visible = this.showFrustums;
                 this.frustums.push(trueFrustum);
 
                 const predFrustum = this.addFrustum(predTransform, {
-                    color: 0xff0000,
-                    opacity: 0.3,
+                    color: predColor,
+                    opacity: 0.4,
                     showLookAt: true
                 });
                 predFrustum.visible = this.showFrustums;
@@ -154,15 +175,9 @@ export class VisualizationManager {
                     throw new Error('No point clouds found in frame data');
                 }
 
-                const pointClouds = frameData.point_clouds[i];
-                if (!Array.isArray(pointClouds) || pointClouds.length === 0) {
+                const points = frameData.point_clouds[i];
+                if (!Array.isArray(points) || points.length === 0) {
                     throw new Error(`Point cloud ${i} is empty or not an array`);
-                }
-
-                // Get the first point cloud for this camera
-                const points = pointClouds[0];
-                if (!Array.isArray(points)) {
-                    throw new Error(`Point cloud ${i} inner data is not an array`);
                 }
 
                 console.log(`Processing point cloud ${i} with ${points.length} points`);
@@ -170,14 +185,14 @@ export class VisualizationManager {
                 // Transform points to Three.js coordinate system
                 const threePoints = transformToThreeSpace(points);
 
-                // Show points with true camera transform (green)
+                // Show points with true camera transform (base color)
                 const trueWorldPoints = threePoints.map(point => {
                     const vec = new THREE.Vector3(...point);
                     vec.applyMatrix4(trueTransform);
                     return [vec.x, vec.y, vec.z];
                 });
                 const trueCloud = this.addPointCloud(trueWorldPoints, {
-                    color: 0x00ff00,
+                    color: baseColor,
                     opacity: 0.7,
                     size: 0.01
                 });
@@ -186,14 +201,14 @@ export class VisualizationManager {
                     this.pointClouds.push(trueCloud);
                 }
 
-                // Show points with predicted camera transform (red)
+                // Show points with predicted camera transform (lightened color)
                 const predWorldPoints = threePoints.map(point => {
                     const vec = new THREE.Vector3(...point);
                     vec.applyMatrix4(predTransform);
                     return [vec.x, vec.y, vec.z];
                 });
                 const predCloud = this.addPointCloud(predWorldPoints, {
-                    color: 0xff0000,
+                    color: predColor,
                     opacity: 0.7,
                     size: 0.01
                 });
@@ -207,6 +222,14 @@ export class VisualizationManager {
             if (this.bunnyMeshData) {
                 const objects = [];
 
+                // Generate a color palette for meshes (true + pred)
+                const numTrueMeshes = frameData.true?.objects?.positions?.length || 0;
+                const numPredMeshes = frameData.pred?.objects?.positions?.length || 0;
+                const totalMeshes = numTrueMeshes + numPredMeshes;
+                const meshColors = getColorPalette(totalMeshes);
+
+                let meshColorIdx = 0;
+
                 // Add true objects
                 if (frameData.true?.objects) {
                     console.log('True objects:', {
@@ -215,12 +238,14 @@ export class VisualizationManager {
                         scales: frameData.true.objects.scales
                     });
                     frameData.true.objects.positions.forEach((pos, i) => {
+                        const baseColor = meshColors[meshColorIdx++];
                         objects.push({
                             data: this.bunnyMeshData,
                             position: pos,
                             rotation: frameData.true.objects.rotations[i],
                             scale: frameData.true.objects.scales[i],
-                            isTrue: true
+                            isTrue: true,
+                            color: baseColor
                         });
                     });
                 } else {
@@ -235,12 +260,16 @@ export class VisualizationManager {
                         scales: frameData.pred.objects.scales
                     });
                     frameData.pred.objects.positions.forEach((pos, i) => {
+                        // Use the same color index as true mesh if possible, else continue palette
+                        const baseColor = meshColors[meshColorIdx - numPredMeshes + i] || meshColors[meshColorIdx++];
+                        const predColor = lightenColor(baseColor, 0.5);
                         objects.push({
                             data: this.bunnyMeshData,
                             position: pos,
                             rotation: frameData.pred.objects.rotations[i],
                             scale: frameData.pred.objects.scales[i],
-                            isTrue: false
+                            isTrue: false,
+                            color: predColor
                         });
                     });
                 } else {
@@ -250,9 +279,18 @@ export class VisualizationManager {
                 // Create and add meshes
                 console.log('Creating meshes for objects:', objects);
                 this.meshes = createMeshes(objects);
-                this.meshes.forEach(mesh => {
+                this.meshes.forEach((mesh, idx) => {
                     mesh.visible = this.showMeshes;
                     this.scene.add(mesh);
+                    // Debug: Log mesh world position, rotation, and scale
+                    console.log(
+                        `Mesh ${idx} debug:`,
+                        {
+                            position: mesh.position.toArray(),
+                            rotation: [mesh.rotation.x, mesh.rotation.y, mesh.rotation.z],
+                            scale: mesh.scale.toArray()
+                        }
+                    );
                 });
                 console.log('Added meshes to scene:', this.meshes.length);
             } else {
