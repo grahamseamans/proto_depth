@@ -150,8 +150,22 @@
             <div class="form-control flex-1">
                 <label class="label cursor-pointer gap-2">
                     <span class="label-text">Frame</span>
+                    <button id="play-btn" class="btn btn-secondary btn-sm mx-2" title="Play/Pause">
+                        <svg id="play-icon" xmlns="http://www.w3.org/2000/svg" class="w-5 h-5" fill="none"
+                            viewBox="0 0 24 24" stroke="currentColor">
+                            <polygon points="6,4 20,12 6,20" fill="currentColor" />
+                        </svg>
+                        <svg id="pause-icon" xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 hidden" fill="none"
+                            viewBox="0 0 24 24" stroke="currentColor">
+                            <rect x="6" y="4" width="4" height="16" fill="currentColor" />
+                            <rect x="14" y="4" width="4" height="16" fill="currentColor" />
+                        </svg>
+                    </button>
                     <input type="range" id="time-slider" min="0" max="29" value="0" class="range flex-1" />
                     <span id="time-display" class="ml-2">0/29</span>
+                    <input type="range" id="speed-slider" min="1" max="10" value="5" class="range w-24 mx-2"
+                        title="Speed" />
+                    <span id="speed-display">1x</span>
                 </label>
             </div>
         </div>

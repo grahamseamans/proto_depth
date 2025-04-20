@@ -20,7 +20,12 @@ export class UI {
                 'toggle-cameras': 'toggleCameras',
                 'toggle-meshes': 'toggleMeshes',
                 'time-slider': 'timeSlider',
-                'time-display': 'timeDisplay'
+                'time-display': 'timeDisplay',
+                'play-btn': 'playBtn',
+                'play-icon': 'playIcon',
+                'pause-icon': 'pauseIcon',
+                'speed-slider': 'speedSlider',
+                'speed-display': 'speedDisplay'
             };
 
             // Get elements
@@ -35,6 +40,21 @@ export class UI {
 
             // Add event listeners
             this.setupEventListeners();
+
+            // Playback state
+            this.isPlaying = false;
+            this.playInterval = null;
+            this.playSpeed = 1; // multiplier, 1x by default
+
+            // Play button event
+            if (this.elements.playBtn) {
+                this.elements.playBtn.addEventListener('click', () => this.togglePlay());
+            }
+            // Speed slider event
+            if (this.elements.speedSlider) {
+                this.elements.speedSlider.addEventListener('input', () => this.onSpeedChange());
+                this.onSpeedChange(); // set initial display
+            }
 
             // Theme toggle: sync 3D background with theme
             const themeToggle = document.getElementById('theme-toggle');
@@ -72,6 +92,66 @@ export class UI {
             if (this.elements[element]) {
                 this.elements[element].addEventListener(event, handler);
             }
+        }
+    }
+
+    // --- Playback Logic ---
+
+    togglePlay() {
+        this.isPlaying = !this.isPlaying;
+        // Update icons
+        if (this.elements.playIcon && this.elements.pauseIcon) {
+            if (this.isPlaying) {
+                this.elements.playIcon.classList.add("hidden");
+                this.elements.pauseIcon.classList.remove("hidden");
+            } else {
+                this.elements.playIcon.classList.remove("hidden");
+                this.elements.pauseIcon.classList.add("hidden");
+            }
+        }
+        if (this.isPlaying) {
+            this.startPlayback();
+        } else {
+            this.stopPlayback();
+        }
+    }
+
+    startPlayback() {
+        if (this.playInterval) clearInterval(this.playInterval);
+        // Calculate interval in ms: map speedSlider (1-10) to 1000ms (slow) to 50ms (fast)
+        const speedValue = this.elements.speedSlider ? parseInt(this.elements.speedSlider.value) : 5;
+        const minMs = 50, maxMs = 1000;
+        const intervalMs = maxMs - ((speedValue - 1) / 9) * (maxMs - minMs);
+        this.playInterval = setInterval(() => {
+            let frame = parseInt(this.elements.timeSlider.value);
+            const maxFrame = parseInt(this.elements.timeSlider.max);
+            frame = (frame + 1) > maxFrame ? 0 : (frame + 1);
+            this.elements.timeSlider.value = frame;
+            this.elements.timeDisplay.textContent = `Frame: ${frame}/${maxFrame}`;
+            this.loadFrame();
+        }, intervalMs);
+    }
+
+    stopPlayback() {
+        if (this.playInterval) {
+            clearInterval(this.playInterval);
+            this.playInterval = null;
+        }
+    }
+
+    onSpeedChange() {
+        const speedValue = this.elements.speedSlider ? parseInt(this.elements.speedSlider.value) : 5;
+        // Map 1-10 to 0.1x to 2x (log scale for better control)
+        const minX = 0.1, maxX = 2.0;
+        const speed = minX + ((speedValue - 1) / 9) * (maxX - minX);
+        this.playSpeed = speed;
+        if (this.elements.speedDisplay) {
+            this.elements.speedDisplay.textContent = `${speed.toFixed(1)}x`;
+        }
+        // If playing, restart interval with new speed
+        if (this.isPlaying) {
+            this.stopPlayback();
+            this.startPlayback();
         }
     }
 
@@ -121,6 +201,15 @@ export class UI {
     }
 
     async onTimeSliderChange() {
+        // If user interacts with slider, pause playback
+        if (this.isPlaying) {
+            this.isPlaying = false;
+            this.stopPlayback();
+            if (this.elements.playIcon && this.elements.pauseIcon) {
+                this.elements.playIcon.classList.remove("hidden");
+                this.elements.pauseIcon.classList.add("hidden");
+            }
+        }
         const frame = this.elements.timeSlider.value;
         this.elements.timeDisplay.textContent = `Frame: ${frame}/${this.elements.timeSlider.max}`;
         await this.loadFrame();
