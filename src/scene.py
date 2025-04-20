@@ -12,7 +12,7 @@ import kaolin.io.obj
 import kaolin.metrics.pointcloud as kaolin_metrics
 from kaolin.render.camera import Camera
 
-from .point_cloud import render_depth_and_pointcloud
+from .point_cloud import render_pointcloud
 
 
 class Scene:
@@ -233,7 +233,7 @@ class Scene:
         point_clouds = []
         for camera in self.true_cameras:
             # Get depth map and point cloud from true scene state
-            points = render_depth_and_pointcloud(
+            points = render_pointcloud(
                 camera,
                 self.true_mesh_verts,
                 self.true_mesh_faces,
@@ -266,7 +266,7 @@ class Scene:
             target_world = self.pred_cameras[i].extrinsics.transform(target)
 
             # Get predicted points from this camera view
-            _, pred_points = render_depth_and_pointcloud(
+            pred_points = render_pointcloud(
                 self.pred_cameras[i],
                 self.pred_mesh_verts,
                 self.pred_mesh_faces,

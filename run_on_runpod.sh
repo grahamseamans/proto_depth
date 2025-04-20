@@ -32,7 +32,7 @@ echo "Syncing code to remote machine..."
 rsync -avz -e "ssh -p $REMOTE_PORT $SSH_OPTS -i $SSH_KEY" \
   --exclude='data' --exclude='.git' --exclude='.venv' --exclude='.conda' \
   --exclude='__pycache__' --exclude='*.pyc' --exclude='progress_images' \
-  --exclude='kaolin' \
+  --exclude='kaolin'  --exclude='Open3D' --exclude='nvdiffrast' \
   ./ "root@$REMOTE_HOST:$REMOTE_DIR/"
 
 # Run the script on the remote machine

@@ -20,6 +20,9 @@ echo "Running command: ssh -t root@$REMOTE_HOST -p $REMOTE_PORT -i $SSH_KEY"
 
 # Create remote directory structure and ensure rsync is installed
 ssh -t root@$REMOTE_HOST -p $REMOTE_PORT -i $SSH_KEY << EOF
+  # Check NVIDIA driver and GPU visibility FIRST
+  nvidia-smi || { echo "nvidia-smi failed: NVIDIA driver or GPU not found"; exit 1; }
+
   mkdir -p $REMOTE_DIR/data
   
   # Install rsync if not already installed
@@ -35,7 +38,7 @@ EOF
 rsync -avz -e "ssh -p $REMOTE_PORT -i $SSH_KEY" \
   --exclude='.git' --exclude='.venv' --exclude='.conda' \
   --exclude='data' --exclude='__pycache__' --exclude='*.pyc' \
-  --exclude='kaolin'  \
+  --exclude='kaolin'  --exclude='Open3D' --exclude='nvdiffrast' \
   ./ "root@$REMOTE_HOST:$REMOTE_DIR/"
 
 # Install dependencies and verify installations
@@ -45,13 +48,15 @@ ssh -t root@$REMOTE_HOST -p $REMOTE_PORT -i $SSH_KEY << EOF
   # Install dependencies
   echo "Installing dependencies..."
   pip install --ignore-installed kaolin==0.17.0 -f https://nvidia-kaolin.s3.us-east-2.amazonaws.com/torch-2.4.0_cu124.html
-  pip install open3d
   pip install matplotlib
   pip install ninja
   git clone https://github.com/NVlabs/nvdiffrast 
   cd nvdiffrast 
   pip install .
   cd ..
+
+  # Check NVIDIA driver and GPU visibility
+  nvidia-smi || echo "nvidia-smi failed: NVIDIA driver or GPU not found"
 
   # Verify torch and CUDA
   echo "Verifying installations..."

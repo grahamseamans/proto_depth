@@ -65,6 +65,9 @@ def visualize_point_clouds():
 
     # Get camera transforms and point clouds
     camera_transforms = data["true"]["camera"]["transforms"]
+    # create idenity camera transform
+    camera_transforms = [np.eye(4) for _ in range(len(data["point_clouds"]))]
+
     point_clouds = data["point_clouds"]
 
     print("\nLoaded from JSON:")
@@ -74,27 +77,6 @@ def visualize_point_clouds():
     # Convert to numpy arrays
     camera_transforms = [np.array(transform) for transform in camera_transforms]
     point_clouds = [np.array(pc) for pc in point_clouds]
-
-    # # Print camera transforms
-    # print("\nCamera transforms (camera to world):")
-    # for i, transform in enumerate(camera_transforms):
-    #     print(f"\nCamera {i}:")
-    #     print(
-    #         f"Position: [{transform[0, 3]:.3f}, {transform[1, 3]:.3f}, {transform[2, 3]:.3f}]"
-    #     )
-    #     print(
-    #         f"Right: [{transform[0, 0]:.3f}, {transform[1, 0]:.3f}, {transform[2, 0]:.3f}]"
-    #     )
-    #     print(
-    #         f"Up: [{transform[0, 1]:.3f}, {transform[1, 1]:.3f}, {transform[2, 1]:.3f}]"
-    #     )
-    #     print(
-    #         f"Forward: [{transform[0, 2]:.3f}, {transform[1, 2]:.3f}, {transform[2, 2]:.3f}]"
-    #     )
-    #     # Print inverse (world to camera) matrix
-    #     world2cam = np.linalg.inv(transform)
-    #     print("\nWorld to camera matrix:")
-    #     print(world2cam)
 
     # Transform each point cloud to world space
     world_clouds = []
@@ -137,8 +119,8 @@ def visualize_point_clouds():
             colors.append([3 * (hue - 2 / 3), 0, 1 - 3 * (hue - 2 / 3)])  # Blue to Red
 
     # Add each point cloud in world space
-    # for i, points in enumerate(world_clouds):
-    for i, points in enumerate(point_clouds):
+    for i, points in enumerate(world_clouds):
+        # for i, points in enumerate(point_clouds):
         # Create and add colored point cloud
         pcd = create_point_cloud(points, colors[i])
         vis.add_geometry(pcd)
@@ -147,55 +129,48 @@ def visualize_point_clouds():
     frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.5)
     vis.add_geometry(frame)
 
-    # Create base arrow at origin pointing in -z
-    base_arrow = o3d.geometry.TriangleMesh.create_arrow(
-        cylinder_radius=0.02,
-        cone_radius=0.04,
-        cylinder_height=0.1,
-        cone_height=0.05,
-    )
-    R = np.array([[1, 0, 0], [0, -1, 0], [0, 0, -1]])
+    # --- Add ground truth bunny mesh(es) at true locations ---
+    import copy as _copy
+    import math
 
-    base_arrow.rotate(R, center=[0, 0, 0])
-    base_arrow.paint_uniform_color([1, 1, 0])  # Yellow
-    vis.add_geometry(base_arrow)
+    bunny_mesh = o3d.io.read_triangle_mesh("3d_models/bunny.obj")
+    bunny_mesh.compute_vertex_normals()
+    bunny_mesh.paint_uniform_color([0.7, 0.7, 0.7])  # light gray
 
-    # Create transformed arrows for each camera
+    # Get ground truth object transforms from JSON
+    gt_positions = np.array(data["true"]["objects"]["positions"])  # [num_objects, 3]
+    gt_rotations = np.array(
+        data["true"]["objects"]["rotations"]
+    )  # [num_objects, 3] (Euler XYZ, radians)
+    gt_scales = np.array(data["true"]["objects"]["scales"])  # [num_objects, 1]
+
+    for i in range(gt_positions.shape[0]):
+        mesh = _copy.deepcopy(bunny_mesh)
+        # Apply scale
+        scale = float(gt_scales[i][0])
+        mesh.scale(scale, center=[0, 0, 0])
+        # Apply rotation (XYZ Euler, radians)
+        rx, ry, rz = gt_rotations[i]
+        # R = o3d.geometry.get_rotation_matrix_from_xyz([rx, ry, rz])
+        # mesh.rotate(R, center=[0, 0, 0])
+        # Apply translation
+        mesh.translate(gt_positions[i])
+        vis.add_geometry(mesh)
+    # --- End ground truth mesh addition ---
+
+    # For each camera, add an arrow at the camera position, pointing along +Z in camera space
     for i, transform in enumerate(camera_transforms):
-        arrow = copy.deepcopy(base_arrow)
-
-        # Print camera info
-        pos = transform[:3, 3]  # Fourth column is position
-        view_dir = transform[:3, 2]  # Third column is forward direction
-        at_point = pos + view_dir  # Point camera is looking at
-        print(f"\nCamera {i}:")
-        print(f"Position: {pos}")
-        print(f"View direction: {view_dir}")
-        print(f"Looking at point: {at_point}")
-
-        # Get arrow's direction before transform
-        vertices = np.asarray(arrow.vertices)
-        tip_vertex = vertices[vertices[:, 1].argmax()]  # Highest y-coord is tip
-        base_vertex = vertices[vertices[:, 1].argmin()]  # Lowest y-coord is base
-        direction = tip_vertex - base_vertex
-        direction = direction / np.linalg.norm(direction)
-        print(f"Arrow {i} before transform:")
-        print(f"Direction: {direction}")
-
-        # Transform arrow
+        arrow = o3d.geometry.TriangleMesh.create_arrow(
+            cylinder_radius=0.02,
+            cone_radius=0.04,
+            cylinder_height=0.1,
+            cone_height=0.05,
+        )
+        # Flip arrow direction: rotate 180 degrees around Y axis before applying camera transform
+        R_flip = o3d.geometry.get_rotation_matrix_from_axis_angle([0, np.pi, 0])
+        arrow.rotate(R_flip, center=[0, 0, 0])
+        arrow.paint_uniform_color(colors[i])
         arrow.transform(transform)
-
-        # Get arrow's direction after transform
-        vertices = np.asarray(arrow.vertices)
-        tip_vertex = vertices[vertices[:, 1].argmax()]
-        base_vertex = vertices[vertices[:, 1].argmin()]
-        direction = tip_vertex - base_vertex
-        direction = direction / np.linalg.norm(direction)
-        print(f"Arrow {i} after transform:")
-        print(f"Direction: {direction}")
-        print(f"Should match view direction: {view_dir}")
-
-        arrow.paint_uniform_color(colors[i])  # Same color as point cloud
         vis.add_geometry(arrow)
 
     # Set view
