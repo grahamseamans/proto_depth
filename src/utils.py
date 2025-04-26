@@ -1,6 +1,9 @@
 import torch
 
 
+from scipy.spatial.transform import Rotation as R
+
+
 def transform_vertices(
     vertices: torch.Tensor,
     position: torch.Tensor,
@@ -8,28 +11,19 @@ def transform_vertices(
     scale: torch.Tensor,
     device: torch.device,
 ) -> torch.Tensor:
-    """Transform mesh vertices based on position, rotation, and scale"""
-    # Make transform matrix from position, rotation (euler angles), and scale
-    cos_r = torch.cos(rotation)
-    sin_r = torch.sin(rotation)
+    """Transform mesh vertices based on position, rotation (quaternion), and scale"""
+    # Convert quaternion (x, y, z, w) to rotation matrix
+    # Ensure rotation is a 1D tensor of length 4
+    if rotation.shape[-1] != 4:
+        raise ValueError("Rotation must be a quaternion of shape (4,)")
 
-    # Rotation matrices
-    R_x = torch.tensor(
-        [[1, 0, 0], [0, cos_r[0], -sin_r[0]], [0, sin_r[0], cos_r[0]]],
-        device=device,
-    )
-    R_y = torch.tensor(
-        [[cos_r[1], 0, sin_r[1]], [0, 1, 0], [-sin_r[1], 0, cos_r[1]]],
-        device=device,
-    )
-    R_z = torch.tensor(
-        [[cos_r[2], -sin_r[2], 0], [sin_r[2], cos_r[2], 0], [0, 0, 1]],
-        device=device,
-    )
+    # Convert to numpy for scipy
+    quat_np = rotation.detach().cpu().numpy()
+    rot_matrix = R.from_quat(quat_np).as_matrix()  # (3, 3)
+    R_torch = torch.tensor(rot_matrix, dtype=vertices.dtype, device=device)
 
-    # Combine into single transform
-    R = torch.matmul(torch.matmul(R_z, R_y), R_x)
-    R = R * scale  # Scale the rotation matrix
+    # Scale the rotation matrix
+    R_torch = R_torch * scale
 
     # Apply rotation and translation
-    return vertices @ R.T + position.unsqueeze(0)
+    return vertices @ R_torch.T + position.unsqueeze(0)

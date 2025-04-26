@@ -22,7 +22,7 @@ This document describes the required JSON structure for each frame in the 4D Rea
     },
     "objects": {
       "positions": [[x, y, z], ...],      // M objects
-      "rotations": [[yaw, pitch, roll], ...],
+      "rotations": [[x, y, z, w], ...],         // quaternion (normalized, [x, y, z, w])
       "scales": [[s], ...]                // or [sx, sy, sz]
     }
   },
@@ -44,7 +44,7 @@ This document describes the required JSON structure for each frame in the 4D Rea
   - **camera.transforms**: Array of N camera-to-world transform matrices (4x4, column-major).
     Each matrix transforms from camera space (-Z forward) to world space.
   - **objects.positions**: Array of M object positions, each `[x, y, z]`.
-  - **objects.rotations**: Array of M object rotations, each `[yaw, pitch, roll]`.
+  - **objects.rotations**: Array of M object rotations, each `[x, y, z, w]` quaternion (normalized, [x, y, z, w] order).
   - **objects.scales**: Array of M object scales, each `[s]` or `[sx, sy, sz]`.
 
 - **point_clouds**:  
@@ -88,7 +88,7 @@ This document describes the required JSON structure for each frame in the 4D Rea
     },
     "objects": {
       "positions": [[0.5, 0, 0], [0.2, 0, 0]],
-      "rotations": [[0, 0, 0], [0, 0, 0]],
+      "rotations": [[0, 0, 0, 1], [0, 0, 0, 1]],
       "scales": [[1], [1]]
     }
   },
@@ -111,7 +111,7 @@ This document describes the required JSON structure for each frame in the 4D Rea
     },
     "objects": {
       "positions": [[0.6, 0, 0], [0.3, 0, 0]],
-      "rotations": [[0, 0, 0], [0, 0, 0]],
+      "rotations": [[0, 0, 0, 1], [0, 0, 0, 1]],
       "scales": [[1], [1]]
     }
   },

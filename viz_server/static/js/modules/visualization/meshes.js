@@ -120,7 +120,15 @@ export function createMeshes(objects, options = {}) {
 
         // Apply transforms
         if (obj.position) mesh.position.fromArray(obj.position);
-        if (obj.rotation) mesh.rotation.fromArray(obj.rotation);
+        if (obj.rotation) {
+            if (obj.rotation.length === 4) {
+                // Assume quaternion [x, y, z, w]
+                mesh.quaternion.fromArray(obj.rotation);
+            } else {
+                // Fallback: assume Euler angles [x, y, z]
+                mesh.rotation.fromArray(obj.rotation);
+            }
+        }
         if (obj.scale) {
             let scale = obj.scale;
             if (Array.isArray(scale)) {

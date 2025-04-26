@@ -288,6 +288,7 @@ export class VisualizationManager {
                         {
                             position: mesh.position.toArray(),
                             rotation: [mesh.rotation.x, mesh.rotation.y, mesh.rotation.z],
+                            quaternion: mesh.quaternion.toArray(),
                             scale: mesh.scale.toArray()
                         }
                     );

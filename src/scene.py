@@ -11,6 +11,7 @@ from typing import List
 import kaolin.io.obj
 import kaolin.metrics.pointcloud as kaolin_metrics
 from kaolin.render.camera import Camera
+from scipy.spatial.transform import Rotation as R
 
 from .point_cloud import render_pointcloud
 
@@ -28,10 +29,10 @@ class Scene:
 
     # Scene state tensors
     true_positions: torch.Tensor  # [num_frames, num_objects, 3]
-    true_rotations: torch.Tensor  # [num_frames, num_objects, 3]
+    true_rotations: torch.Tensor  # [num_frames, num_objects, 4] (quaternion)
     true_scales: torch.Tensor  # [num_frames, num_objects, 1]
     pred_positions: torch.Tensor  # [num_frames, num_objects, 3]
-    pred_rotations: torch.Tensor  # [num_frames, num_objects, 3]
+    pred_rotations: torch.Tensor  # [num_frames, num_objects, 4] (quaternion)
     pred_scales: torch.Tensor  # [num_frames, num_objects, 1]
 
     # Mesh attributes
@@ -93,10 +94,12 @@ class Scene:
 
         # True scene state over time (what actually exists)
         self.true_positions = torch.zeros(num_frames, num_objects, 3, device=device)
-        self.true_rotations = torch.zeros(num_frames, num_objects, 3, device=device)
+        self.true_rotations = torch.zeros(
+            num_frames, num_objects, 4, device=device
+        )  # quaternion (x, y, z, w)
         self.true_scales = torch.ones(num_frames, num_objects, 1, device=device)
 
-        # Generate motion paths
+        # Generate motion paths and quaternion rotations
         for t in range(num_frames):
             time = t / (num_frames - 1)  # Normalize to [0, 1]
 
@@ -121,8 +124,12 @@ class Scene:
                 device=device,
             )
 
-            # Simple rotation (Y-axis spin)
-            self.true_rotations[t, :, 1] = 2 * np.pi * time
+            # Simple rotation (Y-axis spin) for both objects
+            # Quaternion for rotation about Y axis by theta
+            theta = 2 * np.pi * time
+            q_y = R.from_euler("y", theta).as_quat()  # (x, y, z, w)
+            self.true_rotations[t, 0] = torch.tensor(q_y, device=device)
+            self.true_rotations[t, 1] = torch.tensor(q_y, device=device)
 
         # true_cameras already created above
 
