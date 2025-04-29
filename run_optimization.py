@@ -9,6 +9,7 @@ import time
 import torch
 from pathlib import Path
 from src import Scene
+from tqdm import tqdm
 
 
 def save_frame_json(
@@ -21,7 +22,10 @@ def save_frame_json(
     pred_object_positions,
     pred_object_rotations,
     pred_object_scales,
-    point_clouds,
+    ground_truth_point_clouds,
+    predicted_point_clouds,
+    true_object_rotmats,
+    pred_object_rotmats,
 ):
     """Write a single frame's data to a JSON file."""
     data = {
@@ -30,6 +34,7 @@ def save_frame_json(
             "objects": {
                 "positions": true_object_positions,
                 "rotations": true_object_rotations,
+                "rot_mats": true_object_rotmats,
                 "scales": true_object_scales,
             },
         },
@@ -38,10 +43,12 @@ def save_frame_json(
             "objects": {
                 "positions": pred_object_positions,
                 "rotations": pred_object_rotations,
+                "rot_mats": pred_object_rotmats,
                 "scales": pred_object_scales,
             },
         },
-        "point_clouds": point_clouds,
+        "ground_truth_point_clouds": ground_truth_point_clouds,
+        "predicted_point_clouds": predicted_point_clouds,
     }
 
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
@@ -56,6 +63,8 @@ def save_iteration_data(scene: Scene, iteration, output_dir):
     output_dir.mkdir(exist_ok=True, parents=True)
     iter_dir = output_dir / f"iter_{iteration:04d}"
     iter_dir.mkdir(exist_ok=True)
+
+    from kaolin.math.quat import rot33_from_quat
 
     # Save data for each frame
     for frame in range(scene.num_frames):
@@ -79,10 +88,24 @@ def save_iteration_data(scene: Scene, iteration, output_dir):
         pred_object_rotations = scene.pred_rotations[frame].cpu().tolist()
         pred_object_scales = scene.pred_scales[frame].cpu().tolist()
 
-        # Get point clouds (still in camera-local space)
-        raw_clouds = scene.get_ground_truth_clouds(frame)
+        # Convert quaternions to rotation matrices and save as lists
+        true_object_rotmats = (
+            rot33_from_quat(scene.true_rotations[frame].cpu()).detach().numpy().tolist()
+        )
+        pred_object_rotmats = (
+            rot33_from_quat(scene.pred_rotations[frame].cpu()).detach().numpy().tolist()
+        )
 
-        point_clouds = [pc.cpu().tolist() for pc in raw_clouds]
+        # Get per-camera point clouds in world space
+        ground_truth_point_clouds = []
+        predicted_point_clouds = []
+        num_cameras = len(scene.true_cameras)
+        for camera_idx in range(num_cameras):
+            gt_points_world, pred_points_world = scene.get_point_cloud_pair(
+                camera_idx, frame
+            )
+            ground_truth_point_clouds.append(gt_points_world.cpu().tolist())
+            predicted_point_clouds.append(pred_points_world.cpu().tolist())
 
         # Save frame data
         save_frame_json(
@@ -95,7 +118,10 @@ def save_iteration_data(scene: Scene, iteration, output_dir):
             pred_object_positions,
             pred_object_rotations,
             pred_object_scales,
-            point_clouds,
+            ground_truth_point_clouds,
+            predicted_point_clouds,
+            true_object_rotmats,
+            pred_object_rotmats,
         )
 
     # Save metadata
@@ -103,7 +129,7 @@ def save_iteration_data(scene: Scene, iteration, output_dir):
         "iteration": iteration,
         "num_frames": scene.num_frames,
         "timestamp": time.time(),
-        "loss": [float(scene.compute_energy(f)) for f in range(scene.num_frames)],
+        "loss": float(scene.compute_energy()),
     }
     with open(iter_dir / "metadata.json", "w") as f:
         json.dump(metadata, f)
@@ -111,6 +137,11 @@ def save_iteration_data(scene: Scene, iteration, output_dir):
 
 def main():
     """Main optimization script"""
+    import torch
+
+    print("Enabling PyTorch anomaly detection...")
+    torch.autograd.set_detect_anomaly(True)
+
     print("Creating scene...")
     scene = Scene(
         num_objects=2,
@@ -137,15 +168,45 @@ def main():
     print("Saving initial state...")
     save_iteration_data(scene, 0, output_dir)
 
-    # TODO: Add optimization loop here
-    # For now just save a few iterations with random changes
-    print("Simulating optimization...")
-    for i in range(1, 2):
-        # Add random changes to predicted positions
-        scene.pred_positions += torch.randn_like(scene.pred_positions) * 0.01
+    # Optimization loop
+    num_iters = 100
+    lr = 1e-2
+    optimizer = torch.optim.Adam(
+        [scene.pred_positions, scene.pred_rotations, scene.pred_scales], lr=lr
+    )
 
-        # Save this iteration
-        print(f"Saving iteration {i}...")
+    print("Starting optimization...")
+    pbar = tqdm(range(1, num_iters + 1), desc="Optimizing", ncols=100)
+    for i in pbar:
+        optimizer.zero_grad()
+        loss = scene.compute_energy()
+        if torch.isnan(loss):
+            print(
+                f"[DEBUG] NaN detected in loss at iter {i}, skipping backward/step and save."
+            )
+            break
+        loss.backward()
+        optimizer.step()
+
+        # Normalize pred_rotations to unit quaternions after each step
+        with torch.no_grad():
+            scene.pred_rotations.data = torch.nn.functional.normalize(
+                scene.pred_rotations.data, dim=-1
+            )
+            # Debug: print min/max, check for NaNs/Infs
+            min_val = scene.pred_rotations.data.min().item()
+            max_val = scene.pred_rotations.data.max().item()
+            num_nans = torch.isnan(scene.pred_rotations.data).sum().item()
+            num_infs = torch.isinf(scene.pred_rotations.data).sum().item()
+            print(
+                f"[DEBUG] pred_rotations normalized: min={min_val}, max={max_val}, NaNs={num_nans}, Infs={num_infs}"
+            )
+            if num_nans > 0 or num_infs > 0:
+                print(
+                    "[ERROR] NaNs or Infs detected in pred_rotations after normalization!"
+                )
+
+        pbar.set_description(f"Iter {i} | Loss: {loss.item():.6f}")
         save_iteration_data(scene, i, output_dir)
 
     print(f"Done! Data saved to {output_dir}")

@@ -29,7 +29,7 @@ echo "Preparing to run $SCRIPT_PATH on $REMOTE_HOST (port $REMOTE_PORT)"
 
 # Sync code to remote machine (excluding big directories and temporary files)
 echo "Syncing code to remote machine..."
-rsync -avz -e "ssh -p $REMOTE_PORT $SSH_OPTS -i $SSH_KEY" \
+rsync -avzq -e "ssh -p $REMOTE_PORT $SSH_OPTS -i $SSH_KEY" \
   --exclude='data' --exclude='.git' --exclude='.venv' --exclude='.conda' \
   --exclude='__pycache__' --exclude='*.pyc' --exclude='progress_images' \
   --exclude='kaolin'  --exclude='Open3D' --exclude='nvdiffrast' \
@@ -50,10 +50,10 @@ mkdir -p tests/output
 mkdir -p viz_server/data
 
 # Sync both output directories
-rsync -avz -e "ssh -p $REMOTE_PORT $SSH_OPTS -i $SSH_KEY" \
+rsync -avzq -e "ssh -p $REMOTE_PORT $SSH_OPTS -i $SSH_KEY" \
   "root@$REMOTE_HOST:$REMOTE_DIR/tests/output/" "./tests/output/"
 
-rsync -avz -e "ssh -p $REMOTE_PORT $SSH_OPTS -i $SSH_KEY" \
+rsync -avzq -e "ssh -p $REMOTE_PORT $SSH_OPTS -i $SSH_KEY" \
   "root@$REMOTE_HOST:$REMOTE_DIR/viz_server/data/" "./viz_server/data/"
 
 echo "Run completed successfully!"

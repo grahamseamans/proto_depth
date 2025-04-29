@@ -1,7 +1,5 @@
 import torch
-
-
-from scipy.spatial.transform import Rotation as R
+from kaolin.math.quat import quat_unit, rot33_from_quat
 
 
 def transform_vertices(
@@ -11,19 +9,22 @@ def transform_vertices(
     scale: torch.Tensor,
     device: torch.device,
 ) -> torch.Tensor:
-    """Transform mesh vertices based on position, rotation (quaternion), and scale"""
-    # Convert quaternion (x, y, z, w) to rotation matrix
+    """
+    Transform mesh vertices based on position, rotation (quaternion), and scale.
+    Uses Kaolin's quaternion utilities for robust, differentiable transforms.
+    """
     # Ensure rotation is a 1D tensor of length 4
     if rotation.shape[-1] != 4:
         raise ValueError("Rotation must be a quaternion of shape (4,)")
 
-    # Convert to numpy for scipy
-    quat_np = rotation.detach().cpu().numpy()
-    rot_matrix = R.from_quat(quat_np).as_matrix()  # (3, 3)
-    R_torch = torch.tensor(rot_matrix, dtype=vertices.dtype, device=device)
+    # Normalize quaternion to ensure valid rotation
+    q = quat_unit(rotation)
+    # Convert quaternion to rotation matrix
+    R = rot33_from_quat(q.unsqueeze(0)).squeeze(0)  # [3,3]
 
     # Scale the rotation matrix
-    R_torch = R_torch * scale
+    R = R * scale
 
     # Apply rotation and translation
-    return vertices @ R_torch.T + position.unsqueeze(0)
+    transformed = vertices @ R.T + position.unsqueeze(0)
+    return transformed

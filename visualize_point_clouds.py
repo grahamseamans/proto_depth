@@ -65,64 +65,53 @@ def visualize_point_clouds():
 
     # Get camera transforms and point clouds
     camera_transforms = data["true"]["camera"]["transforms"]
-    # create idenity camera transform
-    # camera_transforms = [np.eye(4) for _ in range(len(data["point_clouds"]))]
 
-    point_clouds = data["point_clouds"]
+    gt_point_clouds = data.get("ground_truth_point_clouds", [])
+    pred_point_clouds = data.get("predicted_point_clouds", [])
 
     print("\nLoaded from JSON:")
     print(f"Number of cameras: {len(camera_transforms)}")
-    print(f"Number of point clouds: {len(point_clouds)}")
+    print(f"Number of ground truth point clouds: {len(gt_point_clouds)}")
+    print(f"Number of predicted point clouds: {len(pred_point_clouds)}")
 
     # Convert to numpy arrays
-    camera_transforms = [np.array(transform) for transform in camera_transforms]
-    point_clouds = [np.array(pc) for pc in point_clouds]
-
-    # Transform each point cloud to world space
-    world_clouds = []
-    for i, (points, transform) in enumerate(zip(point_clouds, camera_transforms)):
-        print(f"\nCamera {i}:")
-        print(f"Point cloud shape: {points.shape}")
-        print(f"Transform matrix:\n{transform}")
-
-        # Add homogeneous coordinate (w=1)
-        points_h = np.concatenate([points, np.ones((len(points), 1))], axis=1)  # [N, 4]
-
-        # Transform points from camera to world space using cam2world matrix
-        points_world_h = transform @ points_h.T  # [4, N]
-        points_world_h = points_world_h.T  # [N, 4]
-
-        # Convert back to 3D
-        points_world = points_world_h[:, :3]  # [N, 3]
-        world_clouds.append(points_world)
-
-        print(f"Transformed shape: {points_world.shape}")
+    gt_point_clouds = [np.array(pc) for pc in gt_point_clouds]
+    pred_point_clouds = [np.array(pc) for pc in pred_point_clouds]
 
     # Create visualizer
     vis = o3d.visualization.Visualizer()
     vis.create_window(window_name="Point Clouds", width=1600, height=900)
 
     # Generate colors for each camera's point cloud
-    num_cameras = len(point_clouds)
-    colors = []
+    num_cameras = len(gt_point_clouds)
+    gt_colors = []
+    pred_colors = []
     for i in range(num_cameras):
         # Generate evenly spaced hues, convert to RGB
         hue = i / num_cameras
-        # Simple hue to RGB conversion (you could use a more sophisticated method)
+        # Ground truth: solid, bright
         if hue < 1 / 3:
-            colors.append([1 - 3 * hue, 3 * hue, 0])  # Red to Green
+            gt_colors.append([1 - 3 * hue, 3 * hue, 0])  # Red to Green
         elif hue < 2 / 3:
-            colors.append(
+            gt_colors.append(
                 [0, 1 - 3 * (hue - 1 / 3), 3 * (hue - 1 / 3)]
             )  # Green to Blue
         else:
-            colors.append([3 * (hue - 2 / 3), 0, 1 - 3 * (hue - 2 / 3)])  # Blue to Red
+            gt_colors.append(
+                [3 * (hue - 2 / 3), 0, 1 - 3 * (hue - 2 / 3)]
+            )  # Blue to Red
+        # Predicted: faded version of same color
+        pred_colors.append([c * 0.5 + 0.5 for c in gt_colors[-1]])
 
-    # Add each point cloud in world space
-    for i, points in enumerate(world_clouds):
-        # for i, points in enumerate(point_clouds):
-        # Create and add colored point cloud
-        pcd = create_point_cloud(points, colors[i])
+    # Add ground truth point clouds (solid)
+    for i, points in enumerate(gt_point_clouds):
+        pcd = create_point_cloud(points, gt_colors[i])
+        vis.add_geometry(pcd)
+
+    # Add predicted point clouds (semi-transparent, if possible)
+    for i, points in enumerate(pred_point_clouds):
+        pcd = create_point_cloud(points, pred_colors[i])
+        # Open3D doesn't support alpha, but we can use lighter color
         vis.add_geometry(pcd)
 
     # Add coordinate frame
@@ -139,9 +128,7 @@ def visualize_point_clouds():
 
     # Get ground truth object transforms from JSON
     gt_positions = np.array(data["true"]["objects"]["positions"])  # [num_objects, 3]
-    gt_rotations = np.array(
-        data["true"]["objects"]["rotations"]
-    )  # [num_objects, 3] (Euler XYZ, radians)
+    gt_rotmats = np.array(data["true"]["objects"]["rot_mats"])  # [num_objects, 3, 3]
     gt_scales = np.array(data["true"]["objects"]["scales"])  # [num_objects, 1]
 
     for i in range(gt_positions.shape[0]):
@@ -149,16 +136,15 @@ def visualize_point_clouds():
         # Apply scale
         scale = float(gt_scales[i][0])
         mesh.scale(scale, center=[0, 0, 0])
-        # Apply rotation (XYZ Euler, radians)
-        rx, ry, rz = gt_rotations[i]
-        # R = o3d.geometry.get_rotation_matrix_from_xyz([rx, ry, rz])
-        # mesh.rotate(R, center=[0, 0, 0])
+        # Apply rotation (rotation matrix)
+        rot_matrix = gt_rotmats[i]
+        mesh.rotate(rot_matrix, center=[0, 0, 0])
         # Apply translation
         mesh.translate(gt_positions[i])
         vis.add_geometry(mesh)
     # --- End ground truth mesh addition ---
 
-    # For each camera, add an arrow at the camera position, pointing along +Z in camera space
+    # For each camera, add an arrow at the camera position, pointing along +Z in camera space (ground truth)
     for i, transform in enumerate(camera_transforms):
         arrow = o3d.geometry.TriangleMesh.create_arrow(
             cylinder_radius=0.02,
@@ -169,8 +155,23 @@ def visualize_point_clouds():
         # Flip arrow direction: rotate 180 degrees around Y axis before applying camera transform
         R_flip = o3d.geometry.get_rotation_matrix_from_axis_angle([0, np.pi, 0])
         arrow.rotate(R_flip, center=[0, 0, 0])
-        arrow.paint_uniform_color(colors[i])
+        arrow.paint_uniform_color(gt_colors[i])
         arrow.transform(transform)
+        vis.add_geometry(arrow)
+
+    # Add arrows for predicted cameras (use black)
+    pred_camera_transforms = data["pred"]["camera"]["transforms"]
+    for i, transform in enumerate(pred_camera_transforms):
+        arrow = o3d.geometry.TriangleMesh.create_arrow(
+            cylinder_radius=0.02,
+            cone_radius=0.04,
+            cylinder_height=0.1,
+            cone_height=0.05,
+        )
+        R_flip = o3d.geometry.get_rotation_matrix_from_axis_angle([0, np.pi, 0])
+        arrow.rotate(R_flip, center=[0, 0, 0])
+        arrow.paint_uniform_color(pred_colors[i])
+        arrow.transform(np.array(transform))
         vis.add_geometry(arrow)
 
     # Set view
