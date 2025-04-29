@@ -157,8 +157,9 @@ export class UI {
 
     // Event Handlers
     async onEpochSliderChange() {
-        const epoch = this.elements.epochSlider.value;
+        const epoch = parseInt(this.elements.epochSlider.value);
         this.elements.epochDisplay.textContent = `Epoch: ${epoch}/${this.elements.epochSlider.max}`;
+        this.manager.currentIteration = epoch;
         await this.loadFrame();
     }
 

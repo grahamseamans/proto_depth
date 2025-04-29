@@ -170,27 +170,35 @@ export class VisualizationManager {
                 predFrustum.visible = this.showFrustums;
                 this.frustums.push(predFrustum);
 
-                // Get this camera's point cloud
-                if (!frameData.point_clouds || !Array.isArray(frameData.point_clouds)) {
-                    throw new Error('No point clouds found in frame data');
+                // Get this camera's point cloud (new format: true.point_clouds and pred.point_clouds)
+                if (!frameData.true?.point_clouds || !Array.isArray(frameData.true.point_clouds)) {
+                    throw new Error('No ground truth point clouds found in frame data');
+                }
+                if (!frameData.pred?.point_clouds || !Array.isArray(frameData.pred.point_clouds)) {
+                    throw new Error('No predicted point clouds found in frame data');
                 }
 
-                const points = frameData.point_clouds[i];
-                if (!Array.isArray(points) || points.length === 0) {
-                    throw new Error(`Point cloud ${i} is empty or not an array`);
+                const gtPoints = frameData.true.point_clouds[i];
+                const predPoints = frameData.pred.point_clouds[i];
+
+                if (!Array.isArray(gtPoints) || gtPoints.length === 0) {
+                    throw new Error(`Ground truth point cloud ${i} is empty or not an array`);
+                }
+                if (!Array.isArray(predPoints) || predPoints.length === 0) {
+                    throw new Error(`Predicted point cloud ${i} is empty or not an array`);
                 }
 
-                console.log(`Processing point cloud ${i} with ${points.length} points`);
+                console.log(`Processing ground truth point cloud ${i} with ${gtPoints.length} points`);
+                console.log(`Processing predicted point cloud ${i} with ${predPoints.length} points`);
 
                 // Transform points to Three.js coordinate system
-                const threePoints = transformToThreeSpace(points);
+                const threeGTPoints = transformToThreeSpace(gtPoints);
+                const threePredPoints = transformToThreeSpace(predPoints);
 
-                // Show points with true camera transform (base color)
-                const trueWorldPoints = threePoints.map(point => {
-                    const vec = new THREE.Vector3(...point);
-                    vec.applyMatrix4(trueTransform);
-                    return [vec.x, vec.y, vec.z];
-                });
+                // Points are already in world space; do not apply camera transform
+                const trueWorldPoints = threeGTPoints;
+                const predWorldPoints = threePredPoints;
+
                 const trueCloud = this.addPointCloud(trueWorldPoints, {
                     color: baseColor,
                     opacity: 0.7,
@@ -201,12 +209,6 @@ export class VisualizationManager {
                     this.pointClouds.push(trueCloud);
                 }
 
-                // Show points with predicted camera transform (lightened color)
-                const predWorldPoints = threePoints.map(point => {
-                    const vec = new THREE.Vector3(...point);
-                    vec.applyMatrix4(predTransform);
-                    return [vec.x, vec.y, vec.z];
-                });
                 const predCloud = this.addPointCloud(predWorldPoints, {
                     color: predColor,
                     opacity: 0.7,
