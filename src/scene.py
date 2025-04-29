@@ -208,6 +208,11 @@ class Scene:
         else:
             gt_cam2world = gt_camera.extrinsics.inv_view_matrix()
             pred_cam2world = pred_camera.extrinsics.inv_view_matrix()
+
+            # remove batch dims from extrinsics
+            gt_cam2world = gt_cam2world.squeeze(0)
+            pred_cam2world = pred_cam2world.squeeze(0)
+
             gt_points_h = torch.cat(
                 [gt_points_cam, torch.ones_like(gt_points_cam[:, :1])], dim=1
             )

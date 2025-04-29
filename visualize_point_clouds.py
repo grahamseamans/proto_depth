@@ -66,8 +66,8 @@ def visualize_point_clouds():
     # Get camera transforms and point clouds
     camera_transforms = data["true"]["camera"]["transforms"]
 
-    gt_point_clouds = data.get("ground_truth_point_clouds", [])
-    pred_point_clouds = data.get("predicted_point_clouds", [])
+    gt_point_clouds = data["true"].get("point_clouds", [])
+    pred_point_clouds = data["pred"].get("point_clouds", [])
 
     print("\nLoaded from JSON:")
     print(f"Number of cameras: {len(camera_transforms)}")
@@ -143,6 +143,25 @@ def visualize_point_clouds():
         mesh.translate(gt_positions[i])
         vis.add_geometry(mesh)
     # --- End ground truth mesh addition ---
+
+    # --- Add predicted bunny mesh(es) at predicted locations ---
+    pred_positions = np.array(data["pred"]["objects"]["positions"])  # [num_objects, 3]
+    pred_rotmats = np.array(data["pred"]["objects"]["rot_mats"])  # [num_objects, 3, 3]
+    pred_scales = np.array(data["pred"]["objects"]["scales"])  # [num_objects, 1]
+
+    for i in range(pred_positions.shape[0]):
+        mesh = _copy.deepcopy(bunny_mesh)
+        # Apply scale
+        scale = float(pred_scales[i][0])
+        mesh.scale(scale, center=[0, 0, 0])
+        # Apply rotation (rotation matrix)
+        rot_matrix = pred_rotmats[i]
+        mesh.rotate(rot_matrix, center=[0, 0, 0])
+        # Apply translation
+        mesh.translate(pred_positions[i])
+        mesh.paint_uniform_color([0.2, 0.4, 1.0])  # blue for predicted
+        vis.add_geometry(mesh)
+    # --- End predicted mesh addition ---
 
     # For each camera, add an arrow at the camera position, pointing along +Z in camera space (ground truth)
     for i, transform in enumerate(camera_transforms):

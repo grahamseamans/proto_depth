@@ -22,10 +22,10 @@ def save_frame_json(
     pred_object_positions,
     pred_object_rotations,
     pred_object_scales,
-    ground_truth_point_clouds,
-    predicted_point_clouds,
     true_object_rotmats,
     pred_object_rotmats,
+    ground_truth_point_clouds,
+    predicted_point_clouds,
 ):
     """Write a single frame's data to a JSON file."""
     data = {
@@ -37,6 +37,7 @@ def save_frame_json(
                 "rot_mats": true_object_rotmats,
                 "scales": true_object_scales,
             },
+            "point_clouds": ground_truth_point_clouds,
         },
         "pred": {
             "camera": {"transforms": pred_cam2world},
@@ -46,9 +47,8 @@ def save_frame_json(
                 "rot_mats": pred_object_rotmats,
                 "scales": pred_object_scales,
             },
+            "point_clouds": predicted_point_clouds,
         },
-        "ground_truth_point_clouds": ground_truth_point_clouds,
-        "predicted_point_clouds": predicted_point_clouds,
     }
 
     os.makedirs(os.path.dirname(out_path), exist_ok=True)
@@ -118,10 +118,10 @@ def save_iteration_data(scene: Scene, iteration, output_dir):
             pred_object_positions,
             pred_object_rotations,
             pred_object_scales,
-            ground_truth_point_clouds,
-            predicted_point_clouds,
             true_object_rotmats,
             pred_object_rotmats,
+            ground_truth_point_clouds,
+            predicted_point_clouds,
         )
 
     # Save metadata

@@ -5,6 +5,7 @@ Point cloud operations for 4D reality learning system.
 import torch
 from .utils import transform_vertices
 from kaolin.render.camera import Camera
+from kaolin.render.mesh import rasterize
 
 
 def render_pointcloud(
@@ -59,7 +60,6 @@ def render_pointcloud(
     face_z = face_xyz[..., 2]  # [F,3]
 
     # Rasterize via Kaolin CUDA backend
-    from kaolin.render.mesh import rasterize
 
     image_xyz, face_idx = rasterize(
         camera.height,
@@ -75,4 +75,7 @@ def render_pointcloud(
     # Mask and collect valid points
     mask = face_idx[0] >= 0  # [H,W]
     points = image_xyz[0][mask]  # [N,3]
+    assert len(points.shape) == 2 and points.shape[1] == 3 and points.shape[0] >= 0, (
+        f"Expected shape [n, 3] where n is a natural number, got {points.shape}"
+    )
     return points
