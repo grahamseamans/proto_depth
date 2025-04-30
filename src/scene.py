@@ -33,7 +33,7 @@ class Scene:
         self.num_objects = num_objects
         self.num_frames = num_frames
 
-        # Camera positions (fixed for true, learnable for pred)
+        # Initialize camera positions
         camera_positions = torch.tensor(
             [
                 [1.0, 0.3, 0.0],  # Side view
@@ -43,17 +43,13 @@ class Scene:
         )
         num_cameras = camera_positions.shape[0]
 
-        # True cameras: fixed positions, look at origin, up=[0,1,0]
-        self.true_camera_positions = camera_positions.clone()
-        self.true_camera_ats = torch.zeros_like(camera_positions)
-        self.true_camera_ups = torch.tensor(
-            [[0.0, 1.0, 0.0]] * num_cameras, device=device
-        )
-        self.true_cameras = [
-            KaolinCamera.from_args(
-                eye=self.true_camera_positions[i],
-                at=self.true_camera_ats[i],
-                up=self.true_camera_ups[i],
+        # Create true cameras (fixed)
+        self.true_cameras = []
+        for i in range(num_cameras):
+            camera = KaolinCamera.from_args(
+                eye=camera_positions[i],
+                at=torch.zeros(3, device=device),  # Look at origin
+                up=torch.tensor([0.0, 1.0, 0.0], device=device),
                 fov=60 * np.pi / 180,
                 width=256,
                 height=256,
@@ -61,23 +57,17 @@ class Scene:
                 far=10.0,
                 device=device,
             )
-            for i in range(num_cameras)
-        ]
+            self.true_cameras.append(camera)
 
-        # Predicted cameras: learnable positions and quaternions
+        # Create predicted cameras (learnable)
         noise = torch.randn_like(camera_positions) * 0.05
-        self.pred_camera_positions = (
-            (camera_positions + noise).clone().detach().requires_grad_(True)
-        )
-        self.pred_camera_ats = torch.zeros_like(camera_positions)
-        self.pred_camera_ups = torch.tensor(
-            [[0.0, 1.0, 0.0]] * num_cameras, device=device
-        )
-        self.pred_cameras = [
-            KaolinCamera.from_args(
-                eye=self.pred_camera_positions[i],
-                at=self.pred_camera_ats[i],
-                up=self.pred_camera_ups[i],
+        noisy_positions = camera_positions + noise
+        self.pred_cameras = []
+        for i in range(num_cameras):
+            camera = KaolinCamera.from_args(
+                eye=noisy_positions[i],
+                at=torch.zeros(3, device=device),  # Look at origin
+                up=torch.tensor([0.0, 1.0, 0.0], device=device),
                 fov=60 * np.pi / 180,
                 width=256,
                 height=256,
@@ -85,8 +75,8 @@ class Scene:
                 far=10.0,
                 device=device,
             )
-            for i in range(num_cameras)
-        ]
+            camera.requires_grad_(True)  # Enable gradients for all camera parameters
+            self.pred_cameras.append(camera)
 
         # True scene state over time (what actually exists)
         self.true_positions = torch.zeros(num_frames, num_objects, 3, device=device)
@@ -234,10 +224,6 @@ class Scene:
                 gt_points_world, pred_points_world = self.get_point_cloud_pair(
                     camera_idx, frame_idx, camera_space=True
                 )
-                if gt_points_world.ndim == 3 and gt_points_world.shape[0] == 1:
-                    gt_points_world = gt_points_world.squeeze(0)
-                if pred_points_world.ndim == 3 and pred_points_world.shape[0] == 1:
-                    pred_points_world = pred_points_world.squeeze(0)
                 gt_points_world = gt_points_world.contiguous()
                 pred_points_world = pred_points_world.contiguous()
                 if gt_points_world.ndim == 2:

@@ -56,4 +56,4 @@ rsync -avzq -e "ssh -p $REMOTE_PORT $SSH_OPTS -i $SSH_KEY" \
 rsync -avzq -e "ssh -p $REMOTE_PORT $SSH_OPTS -i $SSH_KEY" \
   "root@$REMOTE_HOST:$REMOTE_DIR/viz_server/data/" "./viz_server/data/"
 
-echo "Run completed successfully!"
+echo "Data synced."

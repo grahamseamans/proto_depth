@@ -49,6 +49,7 @@ ssh -t root@$REMOTE_HOST -p $REMOTE_PORT -i $SSH_KEY << EOF
   echo "Installing dependencies..."
   pip install --ignore-installed kaolin==0.17.0 -f https://nvidia-kaolin.s3.us-east-2.amazonaws.com/torch-2.4.0_cu124.html
   pip install matplotlib
+  pip install einops
   pip install ninja
   git clone https://github.com/NVlabs/nvdiffrast 
   cd nvdiffrast 
