@@ -6,10 +6,10 @@ Saves data in viz server format for visualization.
 import json
 import os
 import time
-import torch
 from pathlib import Path
 from src import SceneV2 as Scene
 from tqdm import tqdm
+from kaolin.math.quat import rot33_from_quat
 
 
 def save_frame_json(
@@ -63,8 +63,6 @@ def save_iteration_data(scene: Scene, iteration, output_dir, true_points, pred_p
     output_dir.mkdir(exist_ok=True, parents=True)
     iter_dir = output_dir / f"iter_{iteration:04d}"
     iter_dir.mkdir(exist_ok=True)
-
-    from kaolin.math.quat import rot33_from_quat
 
     num_cameras = len(scene.true_cameras)
 
@@ -177,7 +175,7 @@ def main():
     camera_params = []
     for camera in scene.pred_cameras:
         extrinsics_params, intrinsics_params = camera.parameters()
-        camera_params.extend([extrinsics_params])
+        camera_params.extend([extrinsics_params, intrinsics_params])
 
     optimizer = torch.optim.Adam(
         [
@@ -194,11 +192,6 @@ def main():
     for i in pbar:
         optimizer.zero_grad()
         loss, (true_points, pred_points) = scene.compute_energy(return_points=True)
-        if torch.isnan(loss):
-            print(
-                f"[DEBUG] NaN detected in loss at iter {i}, skipping backward/step and save."
-            )
-            break
         loss.backward()
         optimizer.step()
 
@@ -207,14 +200,9 @@ def main():
             scene.pred_rotations.data = torch.nn.functional.normalize(
                 scene.pred_rotations.data, dim=-1
             )
-            # Debug: print min/max, check for NaNs/Infs
-            min_val = scene.pred_rotations.data.min().item()
-            max_val = scene.pred_rotations.data.max().item()
+            # check for NaNs/Infs
             num_nans = torch.isnan(scene.pred_rotations.data).sum().item()
             num_infs = torch.isinf(scene.pred_rotations.data).sum().item()
-            print(
-                f"[DEBUG] pred_rotations normalized: min={min_val}, max={max_val}, NaNs={num_nans}, Infs={num_infs}"
-            )
             if num_nans > 0 or num_infs > 0:
                 print(
                     "[ERROR] NaNs or Infs detected in pred_rotations after normalization!"

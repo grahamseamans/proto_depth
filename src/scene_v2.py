@@ -250,7 +250,8 @@ class SceneV2:
         # Stage 6: Rasterize
         # Input:  verts_ndc [BC=120 views, V=71894, xyz=3]  # 60 batches * 2 cameras
         #         faces [F=138902 faces, idx=3]  # All objects' faces with offsets
-        # Output: points List[BC=120] of [N varying points, xyz=3]
+        # Output: image_xyz [2, B=60, H=256, W=256, xyz=3]  # Split by true/pred
+        #         face_idx [2, B=60, H=256, W=256]         # Split by true/pred
 
         # Get per-face data for all objects
         face_vs = verts_ndc[:, faces]  # [BC, F, 3, 3]  # F includes all objects' faces
@@ -262,21 +263,44 @@ class SceneV2:
         image_xyz, face_idx = rasterize(
             256, 256, face_z, face_xy, face_xyz, backend="cuda"
         )
-        points = [image_xyz[b][face_idx[b] >= 0] for b in range(len(image_xyz))]
+        # Reshape to separate true/pred states
+        image_xyz = rearrange(
+            image_xyz, "(P B) H W xyz -> P B H W xyz", P=2
+        )  # [2, 60, 256, 256, 3]
+        face_idx = rearrange(face_idx, "(P B) H W -> P B H W", P=2)  # [2, 60, 256, 256]
 
-        # Stage 7: Compute chamfer distance
-        # Input:  points List[BC=120] of [N points, xyz=3]  # 60 batches * 2 cameras
-        # Output: energy scalar (mean chamfer distance across all pairs)
-        total_points = batch_size * self.num_cameras
-        true_points = points[: total_points // 2]  # First half is true
-        pred_points = points[total_points // 2 :]  # Second half is pred
+        # Stage 7: Extract valid points and compute chamfer distance
+        # Input:  image_xyz [2, B=60, H=256, W=256, xyz=3]  # Split by true/pred
+        #         face_idx [2, B=60, H=256, W=256]         # Split by true/pred
+        # Output: energy scalar (mean chamfer distance across valid pairs)
+        #         true_points, pred_points lists of valid point clouds if return_points=True
 
-        # Compute chamfer distance for corresponding pairs
-        pairs = [(true_points[i], pred_points[i]) for i in range(len(true_points))]
-        valid_pairs = [(t, p) for t, p in pairs if len(t) > 0 and len(p) > 0]
+        true_points = []
+        pred_points = []
+        valid_pairs = []
+
+        # Process each frame and camera combination
+        for frame_idx in range(self.num_frames):
+            for cam_idx in range(self.num_cameras):
+                # Convert frame/camera indices to batch index
+                b = frame_idx * self.num_cameras + cam_idx
+
+                # Get valid points for this view
+                true_valid = face_idx[0, b] >= 0  # [H, W]
+                pred_valid = face_idx[1, b] >= 0  # [H, W]
+
+                true_pc = image_xyz[0, b][true_valid]  # [N, 3]
+                pred_pc = image_xyz[1, b][pred_valid]  # [M, 3]
+
+                true_points.append(true_pc)
+                pred_points.append(pred_pc)
+
+                if len(true_pc) > 0 and len(pred_pc) > 0:
+                    valid_pairs.append((true_pc, pred_pc))
 
         if not valid_pairs:
-            energy = torch.tensor(0.0, device=self.device)
+            # Return high energy when no valid pairs (encourages keeping objects in view)
+            energy = torch.tensor(100.0, device=self.device)
         else:
             chamfer_dists = [
                 kaolin_metrics.chamfer_distance(
@@ -288,9 +312,9 @@ class SceneV2:
 
         if return_points:
             # Stage 8: Convert to world space for visualization
-            # Input:  points List[BC=120] of [N points, xyz=3]  # 60 batches * 2 cameras
+            # Input:  true_points, pred_points lists of valid point clouds in camera space
             #         cameras List[C=2] of camera objects (true/pred separately)
-            # Output: world_points List[BC=120] of [N points, xyz=3] in world space
+            # Output: true_points_world, pred_points_world lists of point clouds in world space
 
             # Get camera transforms
             true_cam2world = torch.stack(
@@ -315,6 +339,13 @@ class SceneV2:
                     true_pc, pred_pc = true_points[idx], pred_points[idx]
 
                     if len(true_pc) == 0 or len(pred_pc) == 0:
+                        # Skip empty point clouds but maintain list structure
+                        true_points_world.append(
+                            torch.empty((0, 3), device=self.device)
+                        )
+                        pred_points_world.append(
+                            torch.empty((0, 3), device=self.device)
+                        )
                         continue
 
                     # Add homogeneous coordinates and transform
