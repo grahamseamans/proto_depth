@@ -10,6 +10,7 @@ from pathlib import Path
 from src import SceneV2 as Scene
 from tqdm import tqdm
 from kaolin.math.quat import rot33_from_quat
+import sys
 
 
 def save_frame_json(
@@ -210,6 +211,7 @@ def main():
 
         pbar.set_description(f"Iter {i} | Loss: {loss.item():.6f}")
         save_iteration_data(scene, i, output_dir, true_points, pred_points)
+        sys.stdout.flush()  # Flush after each iteration
 
     print(f"Done! Data saved to {output_dir}")
     print("Run the viz server and open http://localhost:5000 to view results")

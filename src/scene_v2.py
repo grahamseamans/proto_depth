@@ -132,26 +132,23 @@ class SceneV2:
         self.pred_scales = self.pred_scales.clone().detach().requires_grad_(True)
 
     def compute_energy(self, return_points=False):
-        # Stage 1: Stack true/pred states
-        # Input:  [T=30 frames, O=2 objects, D=dims (3 for pos, 4 for rot, 1 for scale)]
-        # Output: [P=2 states, T=30 frames, O=2 objects, D=dims]
-        positions = torch.stack(
-            [self.true_positions, self.pred_positions]
-        )  # [P T O xyz]
-        rotations = torch.stack(
-            [self.true_rotations, self.pred_rotations]
-        )  # [P T O xyzw]
-        scales = torch.stack([self.true_scales, self.pred_scales])  # [P T O scale]
+        import time
 
-        # Stage 2: Reshape for batched processing
-        # Input:  [P=2 states, T=30 frames, O=2 objects, D=dims]
-        # Output: [B=60 batches, O=2 objects, D=dims]
+        t_start = time.time()
+
+        # Stage 1-2: Stack and reshape states
+        t0 = time.time()
+        positions = torch.stack([self.true_positions, self.pred_positions])
+        rotations = torch.stack([self.true_rotations, self.pred_rotations])
+        scales = torch.stack([self.true_scales, self.pred_scales])
         positions = rearrange(positions, "P T O xyz -> (P T) O xyz")
         rotations = rearrange(rotations, "P T O xyzw -> (P T) O xyzw")
         scales = rearrange(scales, "P T O s -> (P T) O s")
+        t1 = time.time()
+        print(f"Stage 1-2 (Stack & Reshape): {t1 - t0:.3f}s")
 
         # Stage 3: Transform vertices
-        # Input:  verts [V=35947 vertices, xyz=3]
+        t0 = time.time()
         #         positions [B=60, O=2, xyz=3]
         #         rotations [B=60, O=2, xyzw=4]
         #         scales [B=60, O=2, scale=1]
@@ -173,25 +170,22 @@ class SceneV2:
         verts = verts + rearrange(positions, "B O xyz -> B O 1 xyz")
 
         # Merge objects with face offsets
-        # Input:  verts [B=60, O=2, V=35947, xyz=3]
-        #         faces [F=69451, idx=3]
-        # Output: verts [B=60, V=71894, xyz=3]  # All objects' vertices
-        #         faces [F=138902, idx=3]       # All objects' faces with offsets
-
-        # Build face offsets for each object
         faces_list = []
         offset = 0
         for i in range(self.num_objects):
-            f = self.mesh_faces + offset  # Add offset to face indices
+            f = self.mesh_faces + offset
             faces_list.append(f)
-            offset += self.mesh_verts.shape[0]  # Increment by vertices per object
-        faces = torch.cat(faces_list, dim=0)  # [F=138902, idx=3]
-        faces = faces[:, [0, 2, 1]]  # Swap v1,v2 for correct winding
+            offset += self.mesh_verts.shape[0]
+        faces = torch.cat(faces_list, dim=0)
+        faces = faces[:, [0, 2, 1]]
 
         # Merge object vertices
-        verts = rearrange(verts, "B O V xyz -> B (O V) xyz")  # [B=60, V=71894, xyz=3]
+        verts = rearrange(verts, "B O V xyz -> B (O V) xyz")
+        t1 = time.time()
+        print(f"Stage 3 (Transform vertices): {t1 - t0:.3f}s")
 
         # Stage 4: Camera matrices
+        t0 = time.time()
         # Input:  true_cameras List[C=2], pred_cameras List[C=2]
         # Output: view_mats [BC=120, h=4, w=4]  # Concatenated true and pred
         #         proj_mats [BC=120, h=4, w=4]  # Concatenated true and pred
@@ -227,8 +221,11 @@ class SceneV2:
         # Concatenate true and pred
         view_mats = torch.cat([true_view, pred_view], dim=0)  # [120, 4, 4]
         proj_mats = torch.cat([true_proj, pred_proj], dim=0)  # [120, 4, 4]
+        t1 = time.time()
+        print(f"Stage 4 (Camera matrices): {t1 - t0:.3f}s")
 
         # Stage 5: Project through cameras
+        t0 = time.time()
         # Input:  verts [B=60, V=71894, xyz=3]
         #         view_mats [BC=120, h=4, w=4]  # Already expanded for batches
         #         proj_mats [BC=120, h=4, w=4]  # Already expanded for batches
@@ -246,8 +243,11 @@ class SceneV2:
         verts_cam = torch.bmm(verts_h, view_mats.transpose(1, 2))
         verts_clip = torch.bmm(verts_cam, proj_mats.transpose(1, 2))
         verts_ndc = verts_clip[..., :3] / verts_clip[..., 3:]
+        t1 = time.time()
+        print(f"Stage 5 (Project vertices): {t1 - t0:.3f}s")
 
         # Stage 6: Rasterize
+        t0 = time.time()
         # Input:  verts_ndc [BC=120 views, V=71894, xyz=3]  # 60 batches * 2 cameras
         #         faces [F=138902 faces, idx=3]  # All objects' faces with offsets
         # Output: image_xyz [2, B=60, H=256, W=256, xyz=3]  # Split by true/pred
@@ -268,50 +268,58 @@ class SceneV2:
             image_xyz, "(P B) H W xyz -> P B H W xyz", P=2
         )  # [2, 60, 256, 256, 3]
         face_idx = rearrange(face_idx, "(P B) H W -> P B H W", P=2)  # [2, 60, 256, 256]
+        t1 = time.time()
+        print(f"Stage 6 (Rasterize): {t1 - t0:.3f}s")
 
         # Stage 7: Extract valid points and compute chamfer distance
+        t0 = time.time()
         # Input:  image_xyz [2, B=60, H=256, W=256, xyz=3]  # Split by true/pred
         #         face_idx [2, B=60, H=256, W=256]         # Split by true/pred
         # Output: energy scalar (mean chamfer distance across valid pairs)
         #         true_points, pred_points lists of valid point clouds if return_points=True
 
+        # Count valid points in each view
+        batch_size = face_idx.shape[1]  # B=60
+        true_counts = (face_idx[0] >= 0).sum(dim=(1, 2))  # [B]
+        pred_counts = (face_idx[1] >= 0).sum(dim=(1, 2))  # [B]
+        max_size = max(true_counts.max(), pred_counts.max())
+        padded_size = max_size + 1
+
+        # Create padded tensors for all batches at once
+        true_padded = torch.full(
+            (batch_size, padded_size, 3), float("inf"), device=self.device
+        )
+        pred_padded = torch.full(
+            (batch_size, padded_size, 3), float("inf"), device=self.device
+        )
+
+        # Extract points and use face_idx as mask
         true_points = []
         pred_points = []
-        valid_pairs = []
+        for b in range(batch_size):
+            true_valid = face_idx[0, b] >= 0  # [H, W]
+            pred_valid = face_idx[1, b] >= 0  # [H, W]
+            true_pc = image_xyz[0, b][true_valid]  # [N, 3]
+            pred_pc = image_xyz[1, b][pred_valid]  # [M, 3]
 
-        # Process each frame and camera combination
-        for frame_idx in range(self.num_frames):
-            for cam_idx in range(self.num_cameras):
-                # Convert frame/camera indices to batch index
-                b = frame_idx * self.num_cameras + cam_idx
+            # Store points for visualization
+            true_points.append(true_pc)
+            pred_points.append(pred_pc)
 
-                # Get valid points for this view
-                true_valid = face_idx[0, b] >= 0  # [H, W]
-                pred_valid = face_idx[1, b] >= 0  # [H, W]
+            # Copy to padded tensors
+            true_padded[b, : true_counts[b]] = true_pc
+            pred_padded[b, : pred_counts[b]] = pred_pc
 
-                true_pc = image_xyz[0, b][true_valid]  # [N, 3]
-                pred_pc = image_xyz[1, b][pred_valid]  # [M, 3]
-
-                true_points.append(true_pc)
-                pred_points.append(pred_pc)
-
-                if len(true_pc) > 0 and len(pred_pc) > 0:
-                    valid_pairs.append((true_pc, pred_pc))
-
-        if not valid_pairs:
-            # Return high energy when no valid pairs (encourages keeping objects in view)
-            energy = torch.tensor(100.0, device=self.device)
-        else:
-            chamfer_dists = [
-                kaolin_metrics.chamfer_distance(
-                    t.unsqueeze(0), p.unsqueeze(0), w1=1.0, w2=1.0, squared=True
-                ).mean()
-                for t, p in valid_pairs
-            ]
-            energy = sum(chamfer_dists) / len(chamfer_dists)
+        # Compute chamfer distance on padded tensors
+        energy = kaolin_metrics.chamfer_distance(
+            true_padded, pred_padded, w1=1.0, w2=1.0, squared=True
+        ).mean()
+        t1 = time.time()
+        print(f"Stage 7 (Extract & Chamfer): {t1 - t0:.3f}s")
 
         if return_points:
             # Stage 8: Convert to world space for visualization
+            t0 = time.time()
             # Input:  true_points, pred_points lists of valid point clouds in camera space
             #         cameras List[C=2] of camera objects (true/pred separately)
             # Output: true_points_world, pred_points_world lists of point clouds in world space
@@ -362,5 +370,12 @@ class SceneV2:
                     true_points_world.append(true_world)
                     pred_points_world.append(pred_world)
 
+            t1 = time.time()
+            print(f"Stage 8 (World space): {t1 - t0:.3f}s")
+            t_end = time.time()
+            print(f"Total time: {t_end - t_start:.3f}s")
             return energy, (true_points_world, pred_points_world)
+
+        t_end = time.time()
+        print(f"Total time: {t_end - t_start:.3f}s")
         return energy
